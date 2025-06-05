@@ -1,0 +1,11 @@
+nni
+torch
+numpy
+matplotlib
+biopython
+pandas
+torchvision
+torchaudio
+pytorch_lightning
+tqdm
+scikit-learn

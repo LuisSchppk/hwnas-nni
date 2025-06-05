@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+MNSIM-2.0
+MNSIM
+data
+dataset
+.vscode
