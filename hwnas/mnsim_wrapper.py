@@ -86,12 +86,12 @@ class DatasetModuleDummy():
         return self.data_loaders
 
 class WrappedTestTrainInterface(TrainTestInterface):
-     def __init__(self, layer_config_list, network_module, train_loader, val_loader, sim_config_path, input_shape, state_dict, weights_file = None, device = None, extra_define = None):
+     def __init__(self, layer_config_list, network_module, train_loader, test_loader, sim_config_path, input_shape, state_dict, weights_file = None, device = None, extra_define = None):
         
         self.network_module = network_module # Unused
-        self.dataset_module = DatasetModuleDummy(train_loader, val_loader)
+        self.dataset_module = DatasetModuleDummy(train_loader, test_loader)
         self.weights_file = weights_file # Unused
-        self.test_loader = val_loader
+        self.test_loader = test_loader
 
         # load simconfig
         ## xbar_size, input_bit, weight_bit, ADC_quantize_bit

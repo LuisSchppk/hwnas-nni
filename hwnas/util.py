@@ -246,6 +246,27 @@ def trace_model(model, num_classes=None, input_shape = None,):
                                 return x[0] + x[1]
                             \n"""+
                     "See search_spaces.py class ElementSum")
+            elif node.target == torch.nn.functional.max_pool2d:
+                assert len(node.args) == 1
+                layer_cfg = ({
+                    'type': 'pooling',
+                    'mode': 'MAX',
+                    'kernel_size': node.args[1]
+                })
+
+                # unsafe to handle it like this...
+                if  len(node.args) == 2:
+                    stride = node.args[2]
+                else:
+                    raise ValueError("MNSIM requires stride for max pool")
+
+                if  len(node.args) == 3:
+                    pad =node.args[2]
+                else:
+                    pad = 0
+                lay
+                layer_cfg['padding'] = pad
+                record_layer(layer_cfg)
             elif node.target == operator.mul:
                 if(node.args[0].target == 'view' and node.args[1].target ==  operator.getitem):
                     
@@ -303,7 +324,7 @@ def trace_model(model, num_classes=None, input_shape = None,):
                     'type': 'conv',
                     'in_channels': mod.in_channels,
                     'out_channels': mod.out_channels,
-                    'kernel_size': mod.kernel_size[0],
+                    'kernel_size': mod.kernel_size[0] if isinstance(mod.kernel_size, tuple) else mod.kernel_size,
                     'padding': mod.padding[0] if isinstance(mod.padding, tuple) else mod.padding,
                     'stride': mod.stride[0] if isinstance(mod.stride, tuple) else mod.stride,
                     'depthwise': 'separable'
@@ -319,7 +340,7 @@ def trace_model(model, num_classes=None, input_shape = None,):
                     'type': 'conv',
                     'in_channels': mod.in_channels,
                     'out_channels': mod.out_channels,
-                    'kernel_size': mod.kernel_size[0],
+                    'kernel_size': mod.kernel_size[0] if isinstance(mod.kernel_size, tuple) else mod.kernel_size,
                     'padding':  mod.padding[0] if isinstance(mod.padding, tuple) else mod.padding
                 })
                 if mod.bias is not None:
@@ -340,7 +361,7 @@ def trace_model(model, num_classes=None, input_shape = None,):
                 layer_cfg = ({
                     'type': 'pooling',
                     'mode': 'MAX',
-                    'kernel_size': mod.kernel_size[0],
+                    'kernel_size': mod.kernel_size[0] if isinstance(mod.kernel_size, tuple) else mod.kernel_size,
                     'stride':  mod.stride if isinstance(mod.stride, int) else mod.stride[0],
                 })
                 if isinstance(mod, nn.MaxPool2d) and hasattr(mod, 'padding'):

@@ -9,6 +9,10 @@ from MNSIM.Interface import quantize
 sys.path.insert(0, '/mnt/c/Users/Luis/Documents/Uni-DESKTOP-F7N3QC8/TU Dresden/4. Semester/CC-Seminar/MNSIM-2.0')
 
 
+import torch
+import torch.profiler
+
+
 import MNSIM
 from util import trace_model
 from MNSIM.Accuracy_Model.Weight_update import weight_update
@@ -26,24 +30,25 @@ import torch.optim.lr_scheduler as lr_scheduler
 from tensorboardX import SummaryWriter
 from translate_state_dict import *
 
-def get_hardware_metrics(model, train_loader, val_loader):
+def get_hardware_metrics(model, train_loader, test_loader, val_loader, num_classes):
 
     inputs, _ = next(iter(train_loader))
     input_shape = inputs.shape
     
-    layer_config_list = trace_model(model=model, input_shape=input_shape, num_classes=100)
+    layer_config_list = trace_model(model=model, input_shape=input_shape, num_classes=num_classes)
     
     network_module = None # not used in this version
     state_dict = flatten_dict(model.state_dict())
+    state_dict = None
     train_loader = train_loader
-    val_loader = val_loader
+    test_loader = test_loader
     sim_config_path = "/mnt/c/Users/Luis/Documents/Uni-DESKTOP-F7N3QC8/TU Dresden/4. Semester/CC-Seminar/MNSIM-2.0/SimConfig.ini"
     enable_variation = True
     enable_SAF = True
     enable_R_ratio = True
     enable_fixed_Qrange = True
 
-    test_train_interface = WrappedTestTrainInterface(layer_config_list=layer_config_list, network_module=network_module, train_loader=train_loader, val_loader=val_loader, sim_config_path=sim_config_path, input_shape=input_shape, state_dict=state_dict, device="cuda")
+    test_train_interface = WrappedTestTrainInterface(layer_config_list=layer_config_list, network_module=network_module, train_loader=train_loader, test_loader=test_loader, sim_config_path=sim_config_path, input_shape=input_shape, state_dict=state_dict, device="cuda")
 
     structure_file = test_train_interface.get_structure()
 
@@ -68,8 +73,8 @@ def get_hardware_metrics(model, train_loader, val_loader):
     power = Model_inference_power(NetStruct=structure_file, SimConfig_path=sim_config_path, TCG_mapping=TCG_mapping)
     # print("========================Power Results=================================")
     # power.model_power_output()
-    power.arch_total_power
-    print("Power:", power, "W")
+    total_power = power.arch_total_power
+    print("Power:", total_power, "W")
 
     energy = Model_energy(NetStruct=structure_file, SimConfig_path=sim_config_path,
                                 TCG_mapping=TCG_mapping, model_latency=latency, model_power=power)
@@ -82,6 +87,7 @@ def get_hardware_metrics(model, train_loader, val_loader):
     hardware_modeling_time = hardware_modeling_end_time - hardware_modeling_start_time
     print("Hardware modeling time:", hardware_modeling_time, "s")
 
+    
 
     # Accuracy currently not possible. MNSIM-2.0 
 
@@ -90,7 +96,7 @@ def get_hardware_metrics(model, train_loader, val_loader):
     accuracy_modeling_start_time = time.time()
     weight = test_train_interface.get_net_bits()
     weight_2 = weight_update(sim_config_path, weight, is_Variation=enable_variation, is_SAF=enable_SAF, is_Rratio=enable_R_ratio)
-    # train_net(test_train_interface.net, train_loader, val_loader, "cuda", "test", "runs", "first")
+    train_net(test_train_interface.net, train_loader=train_loader, test_loader=test_loader, device="cuda", dir_path="runs")
     
     if not (enable_fixed_Qrange):
         print("Original accuracy:", test_train_interface.origin_evaluate(method='FIX_TRAIN', adc_action='SCALE'))
@@ -101,15 +107,15 @@ def get_hardware_metrics(model, train_loader, val_loader):
         print("Original accuracy:", test_train_interface.origin_evaluate(method='FIX_TRAIN', adc_action='FIX'))
         
         # cim_accuracy = test_train_interface.set_net_bits_evaluate(weight_2, adc_action='FIX')
-        cim_accuracy  = eval_cim_accuracy(test_loader=test_train_interface.test_loader, net=test_train_interface.net, net_bit_weights=weight_2, adc_action='FIX')
+        cim_accuracy  = eval_cim_accuracy(val_loader=val_loader, net=test_train_interface.net, net_bit_weights=weight_2, adc_action='FIX')
         print("PIM-based computing accuracy:", cim_accuracy)
     accuracy_modeling_end_time = time.time()
     accuracy_modeling_time = accuracy_modeling_end_time - accuracy_modeling_start_time
     print("Accuracy modeling time:", accuracy_modeling_time)
+
     return cim_accuracy, total_latency, total_energy, total_area
 
-
-def eval_cim_accuracy(test_loader, net, net_bit_weights, adc_action = 'SCALE', device="cuda"):
+def eval_cim_accuracy(val_loader, net, net_bit_weights, adc_action = 'SCALE', device="cuda"):
     net.to(device)
     print("Eval on device:", device)
     net.eval()
@@ -117,12 +123,28 @@ def eval_cim_accuracy(test_loader, net, net_bit_weights, adc_action = 'SCALE', d
     test_total = 0
     net.compile()
     with torch.no_grad():
-        for i, (data, labels) in enumerate(test_loader):
+        for i, (data, labels) in enumerate(val_loader):
             if i > 10:
                 break
             data = data.to(device)
             test_total += labels.size(0)
+
+            # with torch.profiler.profile(
+            #     activities=[
+            #         torch.profiler.ProfilerActivity.CPU,
+            #         torch.profiler.ProfilerActivity.CUDA],
+            #     with_stack=True,
+            #     record_shapes=True,
+            #     profile_memory=True
+            # ) as prof:
             outputs = set_weights_forward(net, data, net_bit_weights, adc_action)
+               
+
+            # Export trace for Chrome or TensorBoard
+            # prof.export_chrome_trace("trace.json")
+            # return
+
+            # outputs = set_weights_forward(net, data, net_bit_weights, adc_action)
             # predicted
             labels = labels.to(device)
             _, predicted = torch.max(outputs, 1)
@@ -130,7 +152,7 @@ def eval_cim_accuracy(test_loader, net, net_bit_weights, adc_action = 'SCALE', d
             test_correct += (predicted == labels).sum().item()
             
     return test_correct / test_total
-    
+
 def set_weights_forward(net, data, net_bit_weights, adc_action='SCALE'):
     # Set static quantization info
     quantize.last_activation_scale = net.input_params['activation_scale']
@@ -170,9 +192,9 @@ def train_net(
     train_loader: torch.utils.data.DataLoader,
     test_loader: torch.utils.data.DataLoader,
     device: torch.device,
-    prefix: str,
+    # prefix: str,
     dir_path: str,
-    filename: str = "99qbitpim_params",
+    # filename: str = "99qbitpim_params",
     epochs: int = 60,
     lr: float = 1e-3,          
     weight_decay: float = 0.01,
@@ -192,11 +214,11 @@ def train_net(
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=gamma)
     
     best_metric = -np.inf
-    patience = 8
+    patience = 20
     counter = 0
     min_delta = 0.01 
 
-    for epoch in range(epochs):
+    for epoch in tqdm(range(epochs), desc="Training Epochs"):
         net.train()
         for i, (images, labels) in enumerate(train_loader):
             optimizer.zero_grad()
@@ -210,14 +232,14 @@ def train_net(
             optimizer.step()
 
             print(f"Epoch {epoch+1:3d}, Batch {i+1:3d}/{len(train_loader):3d}, Loss: {loss.item():.4f}", end='\r')
-            tensorboard_writer.add_scalar('train_loss', loss.item(), epoch * len(train_loader) + i)
+        # tensorboard_writer.add_scalar('train_loss', loss.item(), epoch * len(train_loader) + i)
 
         scheduler.step()  # moved here, after epoch completion
 
         val_metric =  eval_net(net, test_loader, epoch + 1, device, tensorboard_writer)
         if counter >= patience:
             print("Early stopping triggered")
-            torch.save(net.state_dict(), os.path.join(dir_path, f'{prefix}_{filename}.pth'))
+            # torch.save(net.state_dict(), os.path.join(dir_path, f'{prefix}_{filename}.pth'))
             torch.cuda.empty_cache()
             break
         if val_metric > best_metric + min_delta:
@@ -227,10 +249,10 @@ def train_net(
         else:
             counter += 1
 
-        if epoch == epochs - 1:
-            torch.save(net.state_dict(), os.path.join(dir_path, f'{prefix}_{filename}.pth'))
+        # if epoch == epochs - 1:
+            # torch.save(net.state_dict(), os.path.join(dir_path, f'{prefix}_{filename}.pth'))
 
-        torch.cuda.empty_cache()
+    torch.cuda.empty_cache()
     return eval_net(net, test_loader, epoch + 1, device, tensorboard_writer)
 
 

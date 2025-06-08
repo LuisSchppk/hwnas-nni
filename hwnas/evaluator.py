@@ -1,24 +1,28 @@
-from ast import mod
+import math
+import os
+import time
 import nni
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
+from nni.nas.space import ExecutableModelSpace
 import torch
 import torch.nn as nn
 from torchvision import transforms
 from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader
 import sys
+import torch
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader, random_split
 
 from tqdm import tqdm
 
 
 sys.path.insert(0, '/mnt/c/Users/Luis/Documents/Uni-DESKTOP-F7N3QC8/TU Dresden/4. Semester/CC-Seminar/MNSIM-2.0')
 
-import MNSIM
-from MNSIM.Latency_Model.Model_latency import Model_latency
-from cifar10net import FCGRDataset, FCGRPreCompDataset, df_to_fcgr
-import sequence_preprocess, util
+from cifar10net import FCGRDataset
+import util
 from hardware_checker import get_hardware_metrics
 
 def constrained_objective(accuracy, latency, energy, area,
@@ -32,6 +36,18 @@ def multiple_objective_function(accuracy, latency, energy, area,
     
     # Normalisation, take a look into the other papers?
     return alpha * accuracy - (beta * latency + gamma * energy + delta * area)
+
+def objective(acc, latency, energy, area,
+              w_acc=1.0, w_lat=0.1, w_en=0.05, A_max=1e8):
+    """
+    Returns a scalar F to maximize, without explicit reference values.
+    If area > A_max, returns -inf to mark infeasible.
+    """
+    if area > A_max:
+        return float("-inf")
+    return w_acc * acc \
+           - w_lat * math.log(latency) \
+           - w_en * math.log(energy)
 
 
 def train_epoch(model, device, train_loader, optimizer):
@@ -65,29 +81,53 @@ def test_epoch(model, device, test_loader):
 
     return accuracy
 
-def hw_evaluation_model(model, group, filepath="hwnas/genome_dataset.csv", nsplits = 1, k=7, batch_size=64, num_workers = 4, epochs=30, lr=0.001):
+def hw_evaluation_model(model, group, num_classes, filepath="hwnas/genome_dataset.csv", nsplits = 1, k=7,  batch_size=64, num_workers = 4, epochs=30, lr=0.001):
     df = pd.read_csv(filepath, index_col=0)
     n_splits = 1
-    group = "genome_id"
+    # group = "genome_id"
+    start = time.time()
 
-
-    # util.replace_conv_bias_with_bn(module=model)
+    util.replace_conv_bias_with_bn(module=model)
     
+    csv_path = "result.csv"
+    file_exists = os.path.isfile(csv_path)
 
     # model = model_bn
-    if group is None:
-        train_subset, val_subset = train_test_split(df, df["label"])
-    else:
-        gss = GroupShuffleSplit(n_splits=n_splits, random_state=42, test_size=None, train_size=0.7)
-        for i, (train_index, val_index) in enumerate(gss.split(df, df["label"], groups=df[group])):
-            assert n_splits > i
-            train_subset = df.iloc[train_index]
-            val_subset = df.iloc[val_index]
+    model_exec = ExecutableModelSpace(model)
+    context = model_exec.status._frozen_context
 
-    train_dataset = FCGRDataset(train_subset ,k)
-    val_dataset = FCGRDataset(val_subset, k)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    # if group is None:
+    #     train_subset, val_subset = train_test_split(df, df["label"])
+    # else:
+    #     gss = GroupShuffleSplit(n_splits=n_splits, random_state=42, test_size=None, train_size=0.7)
+    #     for i, (train_index, val_index) in enumerate(gss.split(df, df["label"], groups=df[group])):
+    #         assert n_splits > i
+    #         train_subset = df.iloc[train_index]
+    #         val_subset = df.iloc[val_index]
+
+    # train_dataset = FCGRDataset(train_subset ,k)
+    # val_dataset = FCGRDataset(val_subset, k)
+    # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+        # val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    # Define a simple transform
+    transform = transforms.ToTensor()
+
+    full_train = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+
+    # Training set and loader
+    train_dataset, val_dataset = random_split(full_train, [45000, 5000])
+    train_loader  = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_loader   = DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    # Test set and loader
+    test_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+    test_loader  = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    df = pd.DataFrame()
+    if file_exists:
+        df = pd.read_csv(csv_path, )
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     print("Evaluate on", device)
@@ -100,27 +140,43 @@ def hw_evaluation_model(model, group, filepath="hwnas/genome_dataset.csv", nspli
     counter = 0
     min_delta = 1
 
-    return get_hardware_metrics(model=model, train_loader=train_loader, val_loader=val_loader) 
+    # return get_hardware_metrics(model=model, train_loader=train_loader, val_loader=val_loader) 
 
-    for epoch in range(epochs):
-        print("Epoch", epoch)
-        train_epoch(model, device, train_loader, optimizer)
-        accuracy = test_epoch(model, device, val_loader)
-        val_metric = accuracy
-        if counter >= patience:
-            print("Early stopping triggered")
-            break
-        if val_metric > best_metric + min_delta:
-            best_metric = val_metric
-            counter = 0
-            print("Reset Patience")
-        else:
-            counter += 1
+    # for epoch in range(epochs):
+    #     print("Epoch", epoch)
+    #     train_epoch(model, device, train_loader, optimizer)
+    #     accuracy = test_epoch(model, device, val_loader)
+    #     val_metric = accuracy
+    #     if counter >= patience:
+    #         print("Early stopping triggered")
+    #         break
+    #     if val_metric > best_metric + min_delta:
+    #         best_metric = val_metric
+    #         counter = 0
+    #         print("Reset Patience")
+    #     else:
+    #         counter += 1
         # nni.report_intermediate_result(accuracy)
-    accuracy = get_hardware_metrics(model=model, train_loader=train_loader, val_loader=val_loader)
+    accuracy, latency, energy, area = get_hardware_metrics(model=model, train_loader=train_loader, test_loader=test_loader, val_loader=val_loader, num_classes=num_classes)
     print("Evaluation done.")
+    metric = objective(acc=accuracy, latency=latency, energy=energy, area=area)
+    print("Final metric", metric)
+    nni.report_final_result(metric=metric)
+    result = pd.DataFrame([{"context": context, "accuracy" : accuracy, "latency" : latency, "energy" : energy , "area" : area}]) 
+    
+    
+    result.to_csv(
+        csv_path,
+        mode='a' if file_exists else 'w',
+        header=not file_exists,
+        index=False
+    )
 
-    nni.report_final_result(accuracy)
+    if file_exists:
+        return
+    end = time.time()
+    print("Total time for", context, ":", end - start)
+
 
 def evaluate_model(model, group, filepath="genome_dataset.csv", nsplits = 1, k=7, batch_size=64, num_workers = 4, epochs=30, lr=0.001):
     df = pd.read_csv(filepath, index_col=0)
