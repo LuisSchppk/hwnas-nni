@@ -2,6 +2,7 @@ from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_
 from sklearn.model_selection import StratifiedKFold, StratifiedGroupKFold, GroupKFold
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from sequence_preprocess import cgr, fcgr
@@ -133,6 +134,65 @@ class CIFAR10NetFCGR(nn.Module):
     def forward(self, x):
         x = self.features(x)
         x = self.classifier(x)
+        return x
+
+class CIFAR10NetFCGRNonSeq(nn.Module):
+    def __init__(self, num_classes, k):
+        super(CIFAR10NetFCGRNonSeq, self).__init__()
+        kernel_size = 5
+        padding = 1
+        pool_kernel = 2
+        pool_stride = 2
+        num_layers = 3
+
+        final_size = compute_final_size(
+            k=k,
+            kernel_size=kernel_size,
+            padding=padding,
+            pool_kernel=pool_kernel,
+            pool_stride=pool_stride,
+            num_layers=num_layers
+        )
+
+        # Convolutional layers (feature extractor)
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=kernel_size, padding=padding)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.pool1 = nn.MaxPool2d(kernel_size=pool_kernel, stride=pool_stride)
+
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=kernel_size, padding=padding)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.pool2 = nn.MaxPool2d(kernel_size=pool_kernel, stride=pool_stride)
+
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=kernel_size, padding=padding)
+        self.relu3 = nn.ReLU(inplace=True)
+        self.pool3 = nn.MaxPool2d(kernel_size=pool_kernel, stride=pool_stride)
+
+        # Fully connected layers (classifier)
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(128 * final_size * final_size, 256)
+        self.relu_fc = nn.ReLU(inplace=True)
+        self.fc2 = nn.Linear(256, num_classes)
+
+    def forward(self, x):
+        # Feature extractor
+        x = self.conv1(x)
+        x = self.relu1(x)
+        x = self.pool1(x)
+
+        x = self.conv2(x)
+        x = self.relu2(x)
+        x = self.pool2(x)
+
+        x = self.conv3(x)
+        x = self.relu3(x)
+        x = self.pool3(x)
+
+        # Classifier
+        x = self.flatten(x)
+        x = self.fc1(x)
+        x = self.relu_fc(x)
+        x = self.fc2(x)
+
         return x
 
 def compute_final_size(k, kernel_size=5, padding=1, pool_kernel=2, pool_stride=2, num_layers=3):
@@ -416,3 +476,28 @@ def gkf_grouped(df, group, k=-1, n_splits=5, batch_size=32, max_epochs=30, lr=0.
     print("Best Precision:", best_precision[1])
     print("Best Recall:", best_recall[1])
     print("Best F1:", best_f1[1])
+
+class CustomModel(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        # Layers from config
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.conv3 = nn.Conv2d(16, 120, 5)
+        self.dropout = nn.Dropout()
+        self.fc1 = nn.Linear(120, 84)
+        self.fc2 = nn.Linear(84, num_classes)
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))          # conv + relu
+        x = self.pool(x)                   # maxpool
+        x = F.relu(self.conv2(x))          # conv + relu
+        x = self.pool(x)                   # maxpool
+        x = F.relu(self.conv3(x))          # conv + relu
+        x = torch.flatten(x, 1)            # flatten (view)
+        x = self.fc1(x)
+        x = self.dropout(x)
+        x = F.relu(x)
+        x = self.fc2(x)               # final fc
+        return x

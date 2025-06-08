@@ -9,19 +9,36 @@ from torchvision import transforms
 from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader
 import sys
+
+from tqdm import tqdm
+
+
 sys.path.insert(0, '/mnt/c/Users/Luis/Documents/Uni-DESKTOP-F7N3QC8/TU Dresden/4. Semester/CC-Seminar/MNSIM-2.0')
 
 import MNSIM
 from MNSIM.Latency_Model.Model_latency import Model_latency
 from cifar10net import FCGRDataset, FCGRPreCompDataset, df_to_fcgr
 import sequence_preprocess, util
-from hardware_checker import test
+from hardware_checker import get_hardware_metrics
+
+def constrained_objective(accuracy, latency, energy, area,
+                          max_latency, max_energy, max_area):
+    if latency > max_latency or energy > max_energy or area > max_area:
+        return -float('inf')  # discard
+    return accuracy
+
+def multiple_objective_function(accuracy, latency, energy, area,
+                       alpha=1.0, beta=1.0, gamma=1.0, delta=1.0):
+    
+    # Normalisation, take a look into the other papers?
+    return alpha * accuracy - (beta * latency + gamma * energy + delta * area)
+
 
 def train_epoch(model, device, train_loader, optimizer):
     loss_fn = nn.CrossEntropyLoss()
     model.train()
     
-    for _, (data, target) in enumerate(train_loader):
+    for _, (data, target) in tqdm(enumerate(train_loader), total=len(train_loader), desc="Training"):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = model(data)
@@ -48,43 +65,16 @@ def test_epoch(model, device, test_loader):
 
     return accuracy
 
-
-def hw_train_epoch(model, device, train_loader, optimizer):
-    loss_fn = nn.CrossEntropyLoss()
-    model.train()
-    
-    for _, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.to(device)
-        optimizer.zero_grad()
-        output = model(data)
-        loss = loss_fn(output, target)
-        loss.backward()
-        optimizer.step()
-
-def hw_test_epoch(model, device, test_loader):
-    model.eval()
-    test_loss = 0
-    correct = 0
-    with torch.no_grad():
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            pred = output.argmax(dim=1, keepdim=True)
-            correct += pred.eq(target.view_as(pred)).sum().item()
-
-    test_loss /= len(test_loader.dataset)
-    accuracy = 100. * correct / len(test_loader.dataset)
-
-    print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'.format(
-          correct, len(test_loader.dataset), accuracy))
-
-    return accuracy
-
 def hw_evaluation_model(model, group, filepath="hwnas/genome_dataset.csv", nsplits = 1, k=7, batch_size=64, num_workers = 4, epochs=30, lr=0.001):
     df = pd.read_csv(filepath, index_col=0)
     n_splits = 1
     group = "genome_id"
 
+
+    # util.replace_conv_bias_with_bn(module=model)
+    
+
+    # model = model_bn
     if group is None:
         train_subset, val_subset = train_test_split(df, df["label"])
     else:
@@ -100,14 +90,17 @@ def hw_evaluation_model(model, group, filepath="hwnas/genome_dataset.csv", nspli
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    print("Evaluate on", device)
     model.to(device)
-
+    
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     
     best_metric = -np.inf
     patience = 8
     counter = 0
-    min_delta = 1 
+    min_delta = 1
+
+    return get_hardware_metrics(model=model, train_loader=train_loader, val_loader=val_loader) 
 
     for epoch in range(epochs):
         print("Epoch", epoch)
@@ -124,7 +117,7 @@ def hw_evaluation_model(model, group, filepath="hwnas/genome_dataset.csv", nspli
         else:
             counter += 1
         # nni.report_intermediate_result(accuracy)
-    test(model=model, train_loader=train_loader, val_loader=val_loader)
+    accuracy = get_hardware_metrics(model=model, train_loader=train_loader, val_loader=val_loader)
     print("Evaluation done.")
 
     nni.report_final_result(accuracy)

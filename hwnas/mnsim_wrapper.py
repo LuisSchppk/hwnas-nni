@@ -1,6 +1,9 @@
 import collections
 import configparser
 import math
+import re
+from MNSIM.Latency_Model.Model_latency import Model_latency
+import util
 from pickle import FALSE
 
 import torch
@@ -12,6 +15,68 @@ from MNSIM import Interface
 import MNSIM
 from MNSIM.Interface.interface import TrainTestInterface
 from MNSIM.Interface.network import NetworkGraph
+import bisect
+
+def translate_state_dict_structure_file(state_dict, quantize_config_list, structure_file, tmp):
+
+    layers = list({key.split('.')[0] for key in state_dict.keys()})
+
+    # print(structure_file)
+    layer_prefix_list = [
+    (''.join(filter(str.isalpha, p)), ''.join(filter(str.isdigit, p)))
+    for p in layers
+    ]
+    
+    map =  dict()
+    for type, suffix in layer_prefix_list:
+        count = 1
+        for idx, layer_info in enumerate(structure_file):
+            if layer_info.get('type') == type:
+                if count == int(suffix):
+                    map.update({type + suffix: idx})
+                    # print("MAP", type, suffix, "to", layer_info[0][0].get("type"), structure_file.index(layer_info))
+                    break
+                else:
+                    count+=1
+    adapted_state_dict = {}
+ 
+    for key, _ in state_dict.items():
+        if key.count(".") > 1:
+            print("WARNING", key)
+        
+        key_first, key_last = key.split('.')
+
+        if(key_last == "weight" and ("conv" in key_first or "fc" in key_first)):
+            adapted_state_dict.update({"layer_list." + str(map.get(key_first, key_first)) + ".layer_list.0." + key_last: _})
+        elif("conv" in key_first and "bias" in key):
+            print("Due to quantization MNSIM-2.0 does not support bias in convolution layer. Please use conv2d + batchnorm insead.")
+            continue
+        elif("fc" in key_first and "bias" in key):
+            print("Due to quantization MNSIM-2.0 does not support bias in fc layer. Please use fc + batchnorm insead.")
+            continue
+        else:
+            adapted_state_dict.update({"layer_list." + str(map.get(key_first, key_first)) + "." + "layer" + "." + key_last: _})
+
+        quantize_config= quantize_config_list[(map.get(key_first))]
+        # Only read and same value for all?
+        bit_scale = torch.FloatTensor([
+                [quantize_config['activation_bit'], -1],
+                [quantize_config['weight_bit'], -1],
+                [quantize_config['activation_bit'], -1]
+                       ])
+        
+        last_value = (-1) * torch.ones(1)
+        if("bn" not in key_first):
+            adapted_state_dict.update({"layer_list." + str(map.get(key_first, key_first)) + '.bit_scale_list' : bit_scale})
+        adapted_state_dict.update({"layer_list." + str(map.get(key_first, key_first)) + ".last_value" : last_value})
+
+    for idx, _ in enumerate(structure_file):
+        if idx not in map.values():
+        
+            last_value = (-1) * torch.ones(1)
+            adapted_state_dict.update({"layer_list." + str(idx) +".last_value" : last_value})
+        
+    return adapted_state_dict
 
 class DatasetModuleDummy():
     def __init__(self, train_loader, val_loader):
@@ -92,11 +157,9 @@ class WrappedTestTrainInterface(TrainTestInterface):
         self.tile_column = self.tile_size[1]
         
         # net and weights
-        if device != None:
-            self.device = torch.device(f'cuda:{device}' if torch.cuda.is_available() else 'cpu')
-        else:
-            self.device = torch.device('cpu')
-
+        if device is None:
+            self.device = torch.device(f'cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = device
         print(f'run on device {self.device}')
 
         if extra_define != None:
@@ -107,15 +170,21 @@ class WrappedTestTrainInterface(TrainTestInterface):
         quantize_config_list, input_index_list = make_quantize_config_index_input_list(layer_config_list=layer_config_list)
         input_params = {'activation_scale': 1. / 255., 'activation_bit': 9, 'input_shape': input_shape}
         self.net = NetworkGraph(self.hardware_config, layer_config_list, quantize_config_list, input_index_list, input_params)
-        print(NetworkGraph)
 
-        if state_dict is not None and False:
+        if state_dict is not None:
             print(f'load state_dict')
             # load weights and split weights according to HW parameters
             #linqiushi modified
-            self.net.load_change_weights(state_dict=state_dict)
+            self.net.load_change_weights(translate_state_dict_structure_file(state_dict=state_dict, quantize_config_list=quantize_config_list, structure_file=self.net.get_structure(), tmp=self.net.state_dict()))
             #linqiushi above
 
+        if weights_file is not None and False:
+            print(f'load weights from {weights_file}')
+            # load weights and split weights according to HW parameters
+            #linqiushi modified
+            self.net.load_change_weights(torch.load(weights_file, map_location=self.device))
+            # self.net.load_state_dict(torch.load(weights_file, map_location=self.device))
+            #linqiushi above
 
 def make_quantize_config_index_input_list(layer_config_list):
     quantize_config_list = []
