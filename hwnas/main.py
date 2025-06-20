@@ -1,29 +1,30 @@
+from collections import Counter, defaultdict
+import nni
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import cifar10net
-from search_space import TutorialModelSpace, VGG8ModelSpaceCIFAR10
-from nni.nas.hub.pytorch import DARTS as DartsSpace
-from nni.nas.space import RawFormatModelSpace
+from search_space import TutorialModelSpace, VGG8ModelSpaceCIFAR10, VGG8ModelSpaceCIFAR10OneShot
 from nni.nas.evaluator import FunctionalEvaluator
 import nni.nas.strategy as strategy
 from nni.nas.experiment import NasExperiment
-from nni.nas.experiment.config import NasExperimentConfig
+from nni.nas.experiment.config import NasExperimentConfig, RawModelFormatConfig
+from nni.nas.evaluator.pytorch.lightning import Trainer
 from evaluator import hw_evaluation_model
 from torch.utils.data import DataLoader
-from hardware_checker import get_hardware_metrics
+from hardware_aware_performance_estimation import get_hardware_metrics
 from torchvision import datasets, transforms
-from nni.nas.strategy import DARTS as DartsStrategy
-from nni.nas.nn.pytorch import ModelSpace
-from nni.nas.evaluator.pytorch import Lightning, ClassificationModule
+from nni.nas.evaluator.pytorch import ClassificationModule, Lightning
+from nni.mutable import Categorical
+from nni.nas.nn.pytorch import LayerChoice
+import torch
+
+torch.set_float32_matmul_precision('medium')
 
 def simple_test():
     df = pd.read_csv("hwnas/genome_dataset.csv", index_col=0)
     n_splits = 1
     group = "genome_id"
-    batch_size = 128
+    batch_size = 256
     k = 7
     num_workers = 4
 
@@ -44,79 +45,120 @@ def simple_test():
 
     get_hardware_metrics(model=model, train_loader=train_loader, test_loader=val_loader)
 
+def combine_model_dict(best_candidates):
+    allowed_values = defaultdict(set)
+    value_counts = defaultdict(Counter)
+    lenght = len(best_candidates)
 
-class Test_Module(ClassificationModule):
-    def __init__(self,
-                 learning_rate: float = 0.001,
-                 weight_decay: float = 0.,
-                 auxiliary_loss_weight: float = 0.4,
-                 max_epochs: int = 600):
-        self.auxiliary_loss_weight = auxiliary_loss_weight
-        self.max_epochs = max_epochs
-        super().__init__(learning_rate=learning_rate, weight_decay=weight_decay, num_classes=10)
+    for cfg in best_candidates:
+        for key, value in cfg.items():
+            allowed_values[key].add(value)
+            value_counts[key][value] += 1
 
-    def test_step(self, batch, batch_idx):
-        
+    allowed_values = {k: sorted(v) for k, v in allowed_values.items()}
 
-def one_shot():
-     # Gradient clip needs to be put here because DARTS strategy doesn't support this configuration from trainer.
-    strategy = DartsStrategy(gradient_clip_val=5.)
+    value_distributions = {}
+    for key, values in allowed_values.items():
+        distribution = [value_counts[key][v] / lenght for v in values]
+        value_distributions[key] = distribution
+    return allowed_values, value_distributions
 
-    # from nni.nas.space import RawFormatModelSpace
-    from nni.nas.execution import SequentialExecutionEngine
-    engine = SequentialExecutionEngine()
-    model_space = DartsSpace(
-        width=16,           # the initial filters (channel number) for the model
-        num_cells=8,        # the number of stacked cells in total
-        dataset='cifar'     # to give a hint about input resolution, here is 32x32
-    )
-    evaluator = FunctionalEvaluator(hw_evaluation_model, **{"filepath":"hwnas/genome_dataset.csv","num_classes" : 10,  "group" : "genome_id", "batch_size" : 256, "epochs" : 1, "num_workers" : 8})
-    
-    strategy(RawFormatModelSpace(model_space, evaluator), engine)
+def restrict_model_space(model_space, best_candidates):
+    restricted_search_space_dict, value_distributions = combine_model_dict(best_candidates)
+    mutable_keys =[]
+    hardware_param = ["xbar_size"]
+    for mut in model_space.mutables:
+        if mut.label in hardware_param:
+            mutable_keys.append(mut.label)
+            continue
+        elif isinstance(mut, Categorical) and restricted_search_space_dict.get(mut.label, None) is not None:
+            old_values = set(mut.values)  # Save original
+            new_values = set(restricted_search_space_dict[mut.label])
+            removed = old_values - new_values
+            mut.values = nni.choice(label=mut.label, choices=sorted(new_values))
+            mutable_keys.append(mut.label)
+            if removed:
+                print(f"Removed from '{mut.label}': {sorted(removed)}")
+        else:
+            raise ValueError("Unknown Mutable", mut)
 
-    # print(next(strategy.list_models()).sample)
-
-    experiment = NasExperiment(model_space, evaluator, strategy)
-    experiment.run()
-
-    return next(strategy.list_models()).sample
-
-
-    evaluator = FunctionalEvaluator(hw_evaluation_model, **{"filepath":"hwnas/genome_dataset.csv","num_classes" : 10,  "group" : "genome_id", "batch_size" : 256, "epochs" : 1, "num_workers" : 8})
-    search_strategy = DartsStrategy()
-    model_space = TutorialModelSpace()
-    # model_space = DartsSpace(
-    #     width=16,           # the initial filters (channel number) for the model
-    #     num_cells=8,        # the number of stacked cells in total
-    #     dataset='cifar'     # to give a hint about input resolution, here is 32x32
-    # )
-    model_space = RawFormatModelSpace.from_model(model_space, evaluator)
-    
-    # assert isinstance(model_space, nn.Module)/
-    # assert isinstance(model_space, ModelSpace)
-    config = NasExperimentConfig("sequential", "simplified", "local", **{"debug":True})
-    exp = NasExperiment(model_space, evaluator, search_strategy, config)
-    exp.config.max_trial_number = 25   
-    exp.config.trial_concurrency = 1 
-    exp.config.trial_gpu_number = 0
-    exp.config.execution_engine.name = "sequential"
-    exp.run()
+    for key, value in restricted_search_space_dict.items():
+        if key in mutable_keys:
+            continue
+        layer_choice = getattr(model_space, key)
+        assert isinstance(layer_choice, LayerChoice)
+        assert len(layer_choice.mutables) == 1
+        mut = layer_choice.mutables[0]
+        assert restricted_search_space_dict.get(mut.label, None) is not None
+        old_values = set(mut.values)
+        new_values = set(restricted_search_space_dict[mut.label])
+        removed = old_values - new_values
+        mut.values = nni.choice(label=mut.label, choices=sorted(new_values))
+        mut.weights = value_distributions[mut.label]
+        if removed:
+            print(f"Removed from '{mut.label}': {sorted(removed)}")
 
 # @profile
 def main():
-    return one_shot()
-    model_space = TutorialModelSpace()
+
+    batch_size = 256
+    num_workers = 8
+    max_epochs = 30
+    max_steps = 1
+    fast_dev_run = True
+    torch.set_float32_matmul_precision('medium')
+
+    # Define a simple transform
+    transform = transforms.ToTensor()
+
+    # full_train = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+
+    # # Training set and loader
+    # # train_dataset, val_dataset = random_split(full_train, [45000, 5000])
+    # # train_loader  = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    # # val_loader   = DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    # train_loader  = DataLoader(full_train, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+
+    # # Test set and loader
+    # test_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+    # test_loader  = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    # search_strategy = strategy.DARTS() # mutation_hooks=[MixedConv2d.mutate, MixedLinear.mutate]
+    # # evaluator = ClassificationModule(train_dataloaders=train_loader, val_dataloaders=test_loader, num_classes=10)
+    # evaluator = Lightning(ClassificationModule(num_classes=10), Trainer(accelerator='gpu', devices=1, max_epochs=max_epochs, fast_dev_run=fast_dev_run, max_steps=max_steps), train_dataloaders=train_loader, val_dataloaders=test_loader)
+   
+    # # config = NasExperimentConfig("sequential", "simplified", "local", **{"debug":True})
+    # config = NasExperimentConfig.default(model_space=model_space, evaluator=evaluator, strategy=search_strategy)
+    # config.model_format = RawModelFormatConfig()
+    # exp = NasExperiment(model_space, evaluator, search_strategy, config)
+    # exp.config.max_trial_number = 25   
+    # exp.config.trial_concurrency = 1 
+    # exp.config.trial_gpu_number = 0
+    # exp.config.execution_engine.name = "sequential"
+    # exp.run(port=8081, debug = True)
+
+    # model_space = VGG8ModelSpaceCIFAR10OneShot()
+    # restrict_model_space(model_space, exp.export_top_models(formatter="dict", top_k=100))
+
+    model_space = VGG8ModelSpaceCIFAR10()
+    # model_space = TutorialModelSpace()
     search_strategy = strategy.RegularizedEvolution(population_size=10, sample_size=3)
-    evaluator = FunctionalEvaluator(hw_evaluation_model, **{"filepath":"hwnas/genome_dataset.csv","num_classes" : 10,  "group" : "genome_id", "batch_size" : 256, "epochs" : 1, "num_workers" : 8})
+    evaluator = FunctionalEvaluator(hw_evaluation_model, **{"num_classes" : 10, "batch_size" : batch_size, "epochs" : max_epochs, "num_workers" : num_workers})
     config = NasExperimentConfig("sequential", "simplified", "local", **{"debug":True})
     exp = NasExperiment(model_space, evaluator, search_strategy, config)
-    exp.config.max_trial_number = 25   
-    exp.config.trial_concurrency = 1 
-    exp.config.trial_gpu_number = 0
+    exp.config.max_trial_number = 15 
     exp.config.execution_engine.name = "sequential"
-    assert isinstance(model_space, nn.Module)
-    assert isinstance(model_space, ModelSpace)
     exp.run(port=8081, debug = True)
+    # tmp = exp.export_top_models(formatter="dict", top_k=1)
+ 
+   
+
+    
+    # xbar_size = nni.choice("xbar_size", [256, 512])
+    # tmp[0].add_mutable(mutable=xbar_size)
+    # restricted_modelspace = ModelSpace()
+    # print(tmp)
 
 if __name__ == "__main__":
     main()

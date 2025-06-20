@@ -134,7 +134,7 @@ def replace_conv_bias_with_bn_old(module: nn.Module):
             setattr(module, bn_name, bn_layer)
 
 
-def replace_conv_bias_with_bn(module: nn.Module):
+def replace_conv_bias_with_bn(module: nn.Module, device):
     """
     Recursively traverse `module`, and whenever we find a ConvNd with bias=True,
     replace it by a Sequential block:
@@ -147,7 +147,7 @@ def replace_conv_bias_with_bn(module: nn.Module):
 
     for name, child in module.named_children():
         # Recurse first
-        replace_conv_bias_with_bn(child)
+        replace_conv_bias_with_bn(child, device)
 
         # Check if child is ConvNd with bias
         if isinstance(child, (nn.Conv1d, nn.Conv2d, nn.Conv3d)) and child.bias is not None:
@@ -175,6 +175,7 @@ def replace_conv_bias_with_bn(module: nn.Module):
                 bias=False
             )
             new_conv.weight.data.copy_(old_weight)
+            new_conv.to(device=device)
 
             # Create BatchNorm for the appropriate dimension
             if isinstance(child, nn.Conv1d):
@@ -190,11 +191,31 @@ def replace_conv_bias_with_bn(module: nn.Module):
             bn.running_mean.zero_()
             bn.running_var.fill_(1.0)
 
+            bn.to(device=device)
             # Create sequential block conv -> bn
             new_block = nn.Sequential(OrderedDict([("conv1", new_conv), ("bn1", bn)]))
-
+            new_block.to(device=device)
 
             # Replace original conv with the sequential block
+            setattr(module, name, new_block)
+            
+        elif isinstance(child, nn.Linear) and child.bias is not None:
+            in_features = child.in_features
+            out_features = child.out_features
+
+            old_weight = child.weight.data.clone()
+            old_bias = child.bias.data.clone()
+
+            new_linear = nn.Linear(in_features, out_features, bias=False)
+            new_linear.weight.data.copy_(old_weight)
+
+            bn = nn.BatchNorm1d(out_features)
+            bn.weight.data.fill_(1.0)
+            bn.bias.data.copy_(old_bias)
+            bn.running_mean.zero_()
+            bn.running_var.fill_(1.0)
+
+            new_block = nn.Sequential(OrderedDict([("linear", new_linear), ("bn", bn)]))
             setattr(module, name, new_block)
 
 def trace_model(model, num_classes=None, input_shape = None,):
@@ -450,7 +471,7 @@ def trace_model(model, num_classes=None, input_shape = None,):
                 layer_cfg = {'type': 'Sigmoid'}
                 record_layer(layer_cfg)
             else:
-                print("no match for", node, node.target, "in call_modules")
+                print("no match for", node, mod, node.target, "in call_modules")
         elif node.op == 'output':
             pass
         else:

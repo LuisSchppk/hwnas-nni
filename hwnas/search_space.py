@@ -7,12 +7,14 @@ from nni.nas.nn.pytorch import (
     MutableDropout, MutableLinear, MutableConv2d
 )
 
+from nni.mutable import ensure_frozen
+
 class DepthwiseSeparableConv(nn.Module):
     def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=1):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_ch, in_ch, kernel_size=kernel_size, stride=stride,
+        self.conv1 = MutableConv2d(in_ch, in_ch, kernel_size=kernel_size, stride=stride,
                                    padding=padding, groups=in_ch)
-        self.conv2 = nn.Conv2d(in_ch, out_ch, kernel_size=1)
+        self.conv2 =  MutableConv2d(in_ch, out_ch, kernel_size=1)
     def forward(self, x):
         return self.conv2(self.conv1(x))
     
@@ -29,25 +31,6 @@ class ElementMultiplicationLayer(nn.Module):
         x[0]=x[0].view(x[0].shape[0],x[0].shape[1],1,1)
         return x[0]*x[1]
 
-
-class DepthwiseSeparableConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv1 = nn.Conv2d(
-            in_channels, in_channels, kernel_size=3, padding=1,
-            groups=in_channels, bias=False
-        )
-        self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        return x
-
 class VGG8ModelSpaceCIFAR10(ModelSpace):
     """
     VGG-8-style model-space for CIFAR-10 (3x32x32 → 10 classes), with:
@@ -60,67 +43,173 @@ class VGG8ModelSpaceCIFAR10(ModelSpace):
         NUM_CLASSES = 10
         super().__init__()
 
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, padding=1)
-        kernel_size_conv2 = nni.choice('kernel_size_conv2', [3, 5])
+        out_size = nni.choice("out_size_conv1", [64, 128])
+        kernel_size_conv1 = nni.choice('kernel_size_conv1', [3, 5, 7])
+        kernel_size_conv3 = nni.choice('kernel_size_conv3', [3, 5])
+        # sub_array_size = nni.choice('sub_array_size', [256])
+        # self.add_mutable(sub_array_size)
+        # self.sub_array_size = ensure_frozen(sub_array_size)
+
+        # 2 x 3 choices = 6
+        self.conv1 = MutableConv2d(3, out_size, kernel_size=kernel_size_conv1, padding=(kernel_size_conv1 // 2))
+
+        # (2 x 1) + (2 x 3) = 8   
         self.conv2 = LayerChoice([
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            DepthwiseSeparableConv(64, 128),
-            MutableConv2d(64, 128, kernel_size=kernel_size_conv2, padding=(kernel_size_conv2 // 2))
+            DepthwiseSeparableConv(out_size, out_size*2),
+            MutableConv2d(out_size, out_size*2, kernel_size=kernel_size_conv1, padding=(kernel_size_conv1 // 2))
         ], label='conv2_choice')
 
-        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)  # 32×32 → 16×16
-
-        kernel_size_conv3 = nni.choice('kernel_size_conv3', [3, 5])
+        # (2 x 1) + (2 x 2) = 6 
         self.conv3 = LayerChoice([
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            DepthwiseSeparableConv(128, 256),
-            MutableConv2d(128, 256, kernel_size=kernel_size_conv3, padding=(kernel_size_conv3 // 2))
+            DepthwiseSeparableConv(out_size*2, out_size*4),
+            MutableConv2d(out_size*2, out_size*4, kernel_size=kernel_size_conv3, padding=(kernel_size_conv3 // 2))
         ], label='conv3_choice')
 
-        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)  # 16x16 → 8x8
+        # 2 x 2 + 1 = 5
+        self.conv4 = LayerChoice([
+            MutableConv2d(out_size*4, out_size*4, kernel_size=kernel_size_conv3, padding=(kernel_size_conv3 // 2)),
+            nn.Identity()
+        ], label='conv4_choice')
 
-        # self.skip_pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        # self.skip_conv = nn.Conv2d(64, 256, kernel_size=1, bias=False)
+        # 2
+        self.conv5 = MutableConv2d(out_size*4, out_size*8, kernel_size=3, padding=1)
 
-        # self.input_choice = InputChoice(n_candidates=1, label="input_choice1")
-        self.pool4 = nn.AvgPool2d(kernel_size=2, stride=2)  # 8x8 → 4x4
+        # 2 + 1 = 3
+        self.conv6 = LayerChoice([
+            MutableConv2d(out_size*8, out_size*8, kernel_size=3, padding=1),
+            nn.Identity()
+        ], label='conv6_choice')
 
-        self.dropout1 = MutableDropout(nni.choice('dropout1', [0.25, 0.5, 0.75]))
-        self.dropout2 = MutableDropout(nni.choice('dropout2', [0.25, 0.5, 0.75]))
+        #  2
+        self.conv7 = MutableConv2d(out_size*8, out_size*16, kernel_size=3, padding=0)
 
-        fc_in_features = 256 * 4 * 4
-        hidden_dim = nni.choice('fc_hidden_dim', [256, 512])
-        self.fc1 = MutableLinear(fc_in_features, hidden_dim)
-        self.fc2 = MutableLinear(hidden_dim, NUM_CLASSES)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.relu = nn.ReLU(inplace=True)
+
+        final_spatial_size = 1
+        fc_in_features = out_size*16 * final_spatial_size * final_spatial_size
+
+        # 2
+        self.fc1 = MutableLinear(fc_in_features, NUM_CLASSES, bias=False)
 
     def forward(self, x):
-        x1 = F.relu(self.conv1(x))  # [B, 64, 32, 32]
-        x1_p = self.pool1(x1)       # [B, 64, 16, 16]
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.pool(x)
 
-        x2 = self.conv2(x1)         # could be one of {Conv2d, DW‐SepConv, MutableConv2d}
-        x2 = F.relu(x2)             # must be [B, 128, 32, 32] before pooling
-        x2_p = self.pool1(x2)       # [B, 128, 16, 16]
+        x = self.relu(self.conv3(x))
 
-        x3 = self.conv3(x2_p)       # before relu should be [B, 256, 16, 16]
-        x3 = F.relu(x3)             # [B, 256, 16, 16]
-        x3_p = self.pool2(x3)       # [B, 256, 8, 8]
+        if not isinstance(self.conv4, nn.Identity):
+            x = self.relu(self.conv4(x))
+        x = self.pool(x)
 
-        # skip = self.skip_pool(x1_p)   # where skip_pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        #                               # [B, 64, 8, 8]
-        # skip = self.skip_conv(skip)   # [B, 256, 8, 8]
-        # skip = F.relu(skip)
+        x = self.relu(self.conv5(x))
+        if not isinstance(self.conv6, nn.Identity):
+            x = self.relu(self.conv6(x))
+        x = self.pool(x)
 
+        x = self.relu(self.conv7(x))
+        x = self.pool(x)
+        
+        x = torch.flatten(x, start_dim=1) 
+        x = self.fc1(x)
+        return x
+    
 
-        # x_choice = self.input_choice([x3_p, skip])  # [B, 256, 8, 8]
+class VGG8ModelSpaceCIFAR10OneShot(ModelSpace):
+    """
+    VGG-8-style model-space for CIFAR-10, explicitly listing all Conv2d variants
+    instead of using MutableConv2d.
+    """
+    def __init__(self):
+        super().__init__()
+        NUM_CLASSES = 10
 
-        x4 = self.pool4(x3_p)        # [B, 256, 4, 4]
-        x4 = torch.flatten(x4, 1)        # [B, 256*4*4]
+        # a mutable for number of output channels
+        out_size = nni.choice("out_size_conv1", [64, 128])
+        # self.out_size = 64
+        self.add_mutable(out_size)
+        self.out_size = ensure_frozen(out_size)
+        self.out_size_choice = out_size
 
-        x4 = self.dropout1(x4)
-        x4 = F.relu(self.fc1(x4))        # [B, hidden_dim]
-        x4 = self.dropout2(x4)
-        logits = self.fc2(x4)            # [B, num_classes]
-        return logits
+        xbar_size_choice = nni.choice('xbar_size', [128, 256, 512])
+        self.add_mutable(xbar_size_choice)
+        self.xbar_size = ensure_frozen(xbar_size_choice)
+        self.xbar_size_choice = xbar_size_choice
+
+        # conv1: kernel_size choices [3,5,7]
+        self.conv1 = LayerChoice([
+            nn.Conv2d(3, self.out_size, kernel_size=3, padding=1),
+            nn.Conv2d(3, self.out_size, kernel_size=5, padding=2),
+            nn.Conv2d(3, self.out_size, kernel_size=7, padding=3)
+        ], label="conv1")
+
+        # conv2: DepthwiseSeparable or standard Conv variants matching conv1 kernel options
+        self.conv2 = LayerChoice([
+            DepthwiseSeparableConv(self.out_size, self.out_size * 2),
+            nn.Conv2d(self.out_size, self.out_size * 2, kernel_size=3, padding=1),
+            nn.Conv2d(self.out_size, self.out_size * 2, kernel_size=5, padding=2),
+            nn.Conv2d(self.out_size, self.out_size * 2, kernel_size=7, padding=3)
+        ], label="conv2")
+
+        # conv3: DepthwiseSeparable or standard Conv variants [3,5]
+        self.conv3 = LayerChoice([
+            DepthwiseSeparableConv(self.out_size * 2, self.out_size * 4),
+            nn.Conv2d(self.out_size * 2, self.out_size * 4, kernel_size=3, padding=1),
+            nn.Conv2d(self.out_size * 2, self.out_size * 4, kernel_size=5, padding=2)
+        ], label="conv3")
+
+        # conv4: mutable conv or identity
+        self.conv4 = LayerChoice([
+            nn.Conv2d(self.out_size * 4, self.out_size * 4, kernel_size=3, padding=1),
+            nn.Conv2d(self.out_size * 4, self.out_size * 4, kernel_size=5, padding=2),
+            nn.Identity()
+        ], label="conv4")
+
+        # conv5: two choices of kernel 3 or 5
+        self.conv5 = LayerChoice([
+            nn.Conv2d(self.out_size * 4, self.out_size * 8, kernel_size=3, padding=1),
+            nn.Conv2d(self.out_size * 4, self.out_size * 8, kernel_size=5, padding=2)
+        ], label="conv5")
+
+        # conv6: conv or identity
+        self.conv6 = LayerChoice([
+            nn.Conv2d(self.out_size * 8, self.out_size * 8, kernel_size=3, padding=1),
+            nn.Identity()
+        ], label="conv6")
+
+        # conv7: always 3x3 no padding
+        self.conv7 = nn.Conv2d(self.out_size * 8, self.out_size * 16, kernel_size=3, padding=0)
+
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.relu = nn.ReLU(inplace=True)
+
+        # final classifier
+        final_spatial_size = 1
+        fc_in = self.out_size * 16 * final_spatial_size
+        self.fc1 = nn.Linear(fc_in, NUM_CLASSES, bias=False)
+
+    def forward(self, x):
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.pool(x)
+
+        x = self.relu(self.conv3(x))
+        if not isinstance(self.conv4, nn.Identity):
+            x = self.relu(self.conv4(x))
+        x = self.pool(x)
+
+        x = self.relu(self.conv5(x))
+        if not isinstance(self.conv6, nn.Identity):
+            x = self.relu(self.conv6(x))
+        x = self.pool(x)
+
+        x = self.relu(self.conv7(x))
+        x = self.pool(x)
+
+        x = torch.flatten(x, start_dim=1)
+        x = self.fc1(x)
+        return x
     
 
 # adapted from tutortial
@@ -134,28 +223,28 @@ class TutorialModelSpace(ModelSpace):
         kernel_size_conv2 = nni.choice('kernel_size_conv2', [3, 5])
         self.conv2 = LayerChoice([
             MutableConv2d(32, 64, kernel_size=kernel_size_conv2, padding=(kernel_size_conv2 // 2)),
-            DepthwiseSeparableConv(32, 64)
+            # DepthwiseSeparableConv(32, 64)
         ], label='conv2')
 
         kernel_size_conv3 = nni.choice('kernel_size_conv3', [3, 5])
         self.conv3 = LayerChoice([
             MutableConv2d(64, 128, kernel_size=kernel_size_conv3, padding=(kernel_size_conv3 // 2)),
-            DepthwiseSeparableConv(64, 128)
+            # DepthwiseSeparableConv(64, 128)
         ], label='conv3')
 
         self.pool = LayerChoice([
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.AvgPool2d(kernel_size=2, stride=2)
+            # nn.AvgPool2d(kernel_size=2, stride=2)
         ], label='pool_choice')
 
         self.pool2 = nn.AdaptiveAvgPool2d((1, 1))
 
-        self.dropout1 = MutableDropout(nni.choice('dropout', [0.25, 0.5, 0.75])) 
-        self.dropout2 = MutableDropout(nni.choice('dropout', [0.25, 0.5, 0.75]))
+        # self.dropout1 = MutableDropout(nni.choice('dropout', [0.25])) 
+        # self.dropout2 = MutableDropout(nni.choice('dropout', [0.75]))
 
-        feature = nni.choice('feature', [32, 64, 128])
-        self.fc1 = MutableLinear(128, feature)  # dynamically fixed below
-        self.fc2 = MutableLinear(feature, NUM_CLASSES)
+        feature = 10
+        self.fc1 = nn.Linear(128, feature)  # dynamically fixed below
+        self.fc2 = Linear(feature, NUM_CLASSES)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
