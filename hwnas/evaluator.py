@@ -158,6 +158,7 @@ def hw_evaluation_model(model, num_classes, batch_size=64, num_workers = 4, epoc
                 print("Reset Patience")
             else:
                 counter += 1
+            break
 
         accuracy, latency, energy, area = get_hardware_metrics(
             model=model,

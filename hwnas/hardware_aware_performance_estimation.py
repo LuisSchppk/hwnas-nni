@@ -1,3 +1,5 @@
+import configparser
+from pathlib import Path
 import sys
 import time
 import numpy as np
@@ -65,11 +67,8 @@ def get_hardware_metrics(model, train_loader, test_loader, val_loader, num_class
     # state_dict = None
     train_loader = train_loader
     test_loader = test_loader
-    sim_config_path = "/mnt/c/Users/Luis/Documents/Uni-DESKTOP-F7N3QC8/TU Dresden/4. Semester/CC-Seminar/MNSIM-2.0/SimConfig.ini"
+    sim_config_path = Path("MNSIM-2.0/SimConfig.ini").resolve()
 
-    # config = configparser.ConfigParser()
-    # config.optionxform = str 
-    # config.read(sim_config_path)
     # sub_array_size = model.sub_array_size
     # config['Crossbar level']["Subarray_Size"]
 
@@ -155,7 +154,7 @@ def eval_cim_accuracy(val_loader, net, net_bit_weights, adc_action = 'SCALE', de
     net.eval()
     test_correct = 0
     test_total = 0
-    net.compile()
+    # net.compile()
     with torch.no_grad():
         for i, (data, labels) in enumerate(val_loader):
             if i > 10:

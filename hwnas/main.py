@@ -146,10 +146,11 @@ def main():
     model_space = VGG8ModelSpaceCIFAR10()
     # model_space = TutorialModelSpace()
     search_strategy = strategy.TPE()
+    
     evaluator = FunctionalEvaluator(hw_evaluation_model, **{"num_classes" : 10, "batch_size" : batch_size, "epochs" : max_epochs, "num_workers" : num_workers})
     config = NasExperimentConfig("sequential", "simplified", "local", **{"debug":True})
     exp = NasExperiment(model_space, evaluator, search_strategy, config)
-    exp.config.max_trial_number = 1
+    exp.config.max_trial_number = 50
     exp.config.execution_engine.name = "sequential"
     exp.run(port=8081, debug = True)
     tmp = exp.export_top_models(formatter="dict", top_k=10)

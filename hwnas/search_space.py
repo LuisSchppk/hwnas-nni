@@ -43,7 +43,7 @@ class VGG8ModelSpaceCIFAR10(ModelSpace):
         NUM_CLASSES = 10
         super().__init__()
 
-        out_size = nni.choice("out_size_conv1", [64, 128])
+        out_size = nni.choice("out_size_conv1", [16, 32, 64])
         kernel_size_conv1 = nni.choice('kernel_size_conv1', [3, 5, 7])
         kernel_size_conv3 = nni.choice('kernel_size_conv3', [3, 5])
         # sub_array_size = nni.choice('sub_array_size', [256])
