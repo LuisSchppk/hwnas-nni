@@ -157,12 +157,15 @@ def main():
     exp.config.max_trial_number = 50
     exp.config.execution_engine.name = "sequential"
     exp.run(port=8081, debug = True)
-    tmp = exp.export_top_models(formatter="dict", top_k=10)
+    tmp = exp.export_top_models(formatter="dict", top_k=50)
     with open(os.path.join(output_dir, "top_models.json"), "w") as f:
         json.dump(tmp, f, indent=4)
 
     with open(os.path.join(output_dir, "search_stat_dict.json"), "w") as f:
         json.dump(search_strategy.state_dict(), f, indent=4)
+        
+    with open(os.path.join(output_dir, "all_models.json"), "w") as f:
+        json.dump(search_strategy.list_models(), f, indent=4)
 
 if __name__ == "__main__":
     main()
