@@ -41,13 +41,18 @@ class VGG8ModelSpaceCIFAR10(ModelSpace):
         out_size = nni.choice("out_size_conv1", [16, 32, 64])
         mult = nni.choice("channel_multiplier", [1, 1.5, 2])
         kernel_size_conv1 = nni.choice('kernel_size_conv1', [3, 5, 7])
+        kernel_size_conv2 = nni.choice('kernel_size_conv2', [3, 5, 7])
         kernel_size_conv3 = nni.choice('kernel_size_conv3', [3, 5])
+        kernel_size_conv4 = nni.choice('kernel_size_conv4', [3, 5])
+        # kernel_size_conv7 = nni.choice('kernel_size_conv7', [1, 3])
+        kernel_size_conv7 = 3
+        kernel_size_pool = nni.choice('pool_size', [2,4])
 
         self.conv1 = MutableConv2d(3, out_size, kernel_size=kernel_size_conv1, padding=(kernel_size_conv1 // 2) )
 
         self.conv2 = LayerChoice([
             DepthwiseSeparableConv(out_size, SymbolicExpression.to_int(out_size * mult) ),
-            MutableConv2d( out_size, SymbolicExpression.to_int(out_size * mult), kernel_size=kernel_size_conv1, padding=(kernel_size_conv1 // 2) )
+            MutableConv2d( out_size, SymbolicExpression.to_int(out_size * mult), kernel_size=kernel_size_conv2, padding=(kernel_size_conv2 // 2) )
         ], label='conv2_choice')
 
         self.conv3 = LayerChoice([
@@ -67,8 +72,8 @@ class VGG8ModelSpaceCIFAR10(ModelSpace):
             MutableConv2d(
                 SymbolicExpression.to_int(out_size * mult * mult),
                 SymbolicExpression.to_int(out_size * mult * mult),
-                kernel_size=kernel_size_conv3,
-                padding=(kernel_size_conv3 // 2)
+                kernel_size=kernel_size_conv4,
+                padding=(kernel_size_conv4 // 2)
             ),
             nn.Identity()
         ], label='conv4_choice')
@@ -93,7 +98,7 @@ class VGG8ModelSpaceCIFAR10(ModelSpace):
         self.conv7 = MutableConv2d(
             SymbolicExpression.to_int(out_size * mult * mult * mult),
             SymbolicExpression.to_int(out_size * mult * mult * mult * mult),
-            kernel_size=3,
+            kernel_size=kernel_size_conv7,
             padding=0
         )
 

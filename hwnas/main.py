@@ -149,7 +149,7 @@ def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = f"output_{timestamp}"
     os.makedirs(output_dir, exist_ok=True)
-
+    
     search_strategy = strategy.TPE()
     evaluator = FunctionalEvaluator(hw_evaluation_model, **{"num_classes" : 10, "batch_size" : batch_size, "epochs" : max_epochs, "num_workers" : num_workers, "output_csv" : os.path.join(output_dir, "results.csv")})
     config = NasExperimentConfig("sequential", "simplified", "local", **{"debug":True})
