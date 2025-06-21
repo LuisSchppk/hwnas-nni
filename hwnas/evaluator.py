@@ -83,7 +83,7 @@ def test_epoch(model, device, test_loader):
 
 
 
-def hw_evaluation_model(model, num_classes, batch_size=64, num_workers = 4, epochs=30, lr=0.001, device = "cuda"):
+def hw_evaluation_model(model, num_classes,  output_csv, batch_size=64, num_workers = 4, epochs=30, lr=0.001, device = "cuda"):
     # nni.report_final_result(metric=1)
     # return 
     start = time.time()
@@ -91,8 +91,7 @@ def hw_evaluation_model(model, num_classes, batch_size=64, num_workers = 4, epoc
     model.to(device)
     util.replace_conv_bias_with_bn(module=model, device=device)
     
-    csv_path = "result.csv"
-    file_exists = os.path.isfile(csv_path)
+    file_exists = os.path.isfile(output_csv)
 
     # model = model_bn
     model_exec = ExecutableModelSpace(model)
@@ -103,7 +102,7 @@ def hw_evaluation_model(model, num_classes, batch_size=64, num_workers = 4, epoc
     df = pd.DataFrame()
     matching_rows = pd.DataFrame()
     if file_exists:
-        df = pd.read_csv(csv_path, )
+        df = pd.read_csv(output_csv, )
         df["config_dict"] = df["context"].apply(ast.literal_eval)
     
         def matches_target(config_dict, target_dict):
@@ -179,7 +178,7 @@ def hw_evaluation_model(model, num_classes, batch_size=64, num_workers = 4, epoc
     result = pd.DataFrame([{"context": context, "accuracy" : accuracy, "latency" : latency, "energy" : energy , "area" : area}]) 
     
     result.to_csv(
-        csv_path,
+        output_csv,
         mode='a' if file_exists else 'w',
         header=not file_exists,
         index=False

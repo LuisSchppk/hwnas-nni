@@ -7,6 +7,8 @@ from nni.nas.nn.pytorch import (
     MutableDropout, MutableLinear, MutableConv2d
 )
 
+from nni.mutable.symbol import SymbolicExpression 
+
 from nni.mutable import ensure_frozen
 
 class DepthwiseSeparableConv(nn.Module):
@@ -32,65 +34,79 @@ class ElementMultiplicationLayer(nn.Module):
         return x[0]*x[1]
 
 class VGG8ModelSpaceCIFAR10(ModelSpace):
-    """
-    VGG-8-style model-space for CIFAR-10 (3x32x32 → 10 classes), with:
-      - LayerChoice over conv2/conv3 (standard vs. depthwise-separable vs. MutableConv2d),
-      - InputChoice between a “skip” (upsampled) path and the main path,
-      - MutableDropout and MutableLinear,
-      - MutableConv2d (as one of the conv candidates).
-    """
     def __init__(self):
         NUM_CLASSES = 10
         super().__init__()
 
         out_size = nni.choice("out_size_conv1", [16, 32, 64])
+        mult = nni.choice("channel_multiplier", [1, 1.5, 2])
         kernel_size_conv1 = nni.choice('kernel_size_conv1', [3, 5, 7])
         kernel_size_conv3 = nni.choice('kernel_size_conv3', [3, 5])
-        # sub_array_size = nni.choice('sub_array_size', [256])
-        # self.add_mutable(sub_array_size)
-        # self.sub_array_size = ensure_frozen(sub_array_size)
 
-        # 2 x 3 choices = 6
-        self.conv1 = MutableConv2d(3, out_size, kernel_size=kernel_size_conv1, padding=(kernel_size_conv1 // 2))
+        self.conv1 = MutableConv2d(3, out_size, kernel_size=kernel_size_conv1, padding=(kernel_size_conv1 // 2) )
 
-        # (2 x 1) + (2 x 3) = 8   
         self.conv2 = LayerChoice([
-            DepthwiseSeparableConv(out_size, out_size*2),
-            MutableConv2d(out_size, out_size*2, kernel_size=kernel_size_conv1, padding=(kernel_size_conv1 // 2))
+            DepthwiseSeparableConv(out_size, SymbolicExpression.to_int(out_size * mult) ),
+            MutableConv2d( out_size, SymbolicExpression.to_int(out_size * mult), kernel_size=kernel_size_conv1, padding=(kernel_size_conv1 // 2) )
         ], label='conv2_choice')
 
-        # (2 x 1) + (2 x 2) = 6 
         self.conv3 = LayerChoice([
-            DepthwiseSeparableConv(out_size*2, out_size*4),
-            MutableConv2d(out_size*2, out_size*4, kernel_size=kernel_size_conv3, padding=(kernel_size_conv3 // 2))
+            DepthwiseSeparableConv(
+                SymbolicExpression.to_int(out_size * mult),
+                SymbolicExpression.to_int(out_size * mult * mult)
+            ),
+            MutableConv2d(
+                SymbolicExpression.to_int(out_size * mult),
+                SymbolicExpression.to_int(out_size * mult * mult),
+                kernel_size=kernel_size_conv3,
+                padding=(kernel_size_conv3 // 2)
+            )
         ], label='conv3_choice')
 
-        # 2 x 2 + 1 = 5
         self.conv4 = LayerChoice([
-            MutableConv2d(out_size*4, out_size*4, kernel_size=kernel_size_conv3, padding=(kernel_size_conv3 // 2)),
+            MutableConv2d(
+                SymbolicExpression.to_int(out_size * mult * mult),
+                SymbolicExpression.to_int(out_size * mult * mult),
+                kernel_size=kernel_size_conv3,
+                padding=(kernel_size_conv3 // 2)
+            ),
             nn.Identity()
         ], label='conv4_choice')
 
-        # 2
-        self.conv5 = MutableConv2d(out_size*4, out_size*8, kernel_size=3, padding=1)
+        self.conv5 = MutableConv2d(
+            SymbolicExpression.to_int(out_size * mult * mult),
+            SymbolicExpression.to_int(out_size * mult * mult * mult),
+            kernel_size=3,
+            padding=1
+        )
 
-        # 2 + 1 = 3
         self.conv6 = LayerChoice([
-            MutableConv2d(out_size*8, out_size*8, kernel_size=3, padding=1),
+            MutableConv2d(
+                SymbolicExpression.to_int(out_size * mult * mult * mult),
+                SymbolicExpression.to_int(out_size * mult * mult * mult),
+                kernel_size=3,
+                padding=1
+            ),
             nn.Identity()
         ], label='conv6_choice')
 
-        #  2
-        self.conv7 = MutableConv2d(out_size*8, out_size*16, kernel_size=3, padding=0)
+        self.conv7 = MutableConv2d(
+            SymbolicExpression.to_int(out_size * mult * mult * mult),
+            SymbolicExpression.to_int(out_size * mult * mult * mult * mult),
+            kernel_size=3,
+            padding=0
+        )
 
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.relu = nn.ReLU(inplace=True)
 
         final_spatial_size = 1
-        fc_in_features = out_size*16 * final_spatial_size * final_spatial_size
+        fc_in_features = SymbolicExpression.to_int(
+            out_size * mult * mult * mult * mult * final_spatial_size * final_spatial_size
+        )
 
-        # 2
         self.fc1 = MutableLinear(fc_in_features, NUM_CLASSES, bias=False)
+
 
     def forward(self, x):
         x = self.relu(self.conv1(x))

@@ -1,5 +1,7 @@
 from collections import Counter, defaultdict
+from datetime import datetime
 import json
+import os
 import nni
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
@@ -12,7 +14,6 @@ from nni.nas.experiment.config import NasExperimentConfig
 from evaluator import hw_evaluation_model
 from torch.utils.data import DataLoader
 from hardware_aware_performance_estimation import get_hardware_metrics
-from torchvision import transforms
 from nni.mutable import Categorical
 from nni.nas.nn.pytorch import LayerChoice
 import torch
@@ -145,19 +146,22 @@ def main():
 
     model_space = VGG8ModelSpaceCIFAR10()
     # model_space = TutorialModelSpace()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = f"output_{timestamp}"
+    os.makedirs(output_dir, exist_ok=True)
+
     search_strategy = strategy.TPE()
-    
-    evaluator = FunctionalEvaluator(hw_evaluation_model, **{"num_classes" : 10, "batch_size" : batch_size, "epochs" : max_epochs, "num_workers" : num_workers})
+    evaluator = FunctionalEvaluator(hw_evaluation_model, **{"num_classes" : 10, "batch_size" : batch_size, "epochs" : max_epochs, "num_workers" : num_workers, "output_csv" : os.path.join(output_dir, "results.csv")})
     config = NasExperimentConfig("sequential", "simplified", "local", **{"debug":True})
     exp = NasExperiment(model_space, evaluator, search_strategy, config)
     exp.config.max_trial_number = 50
     exp.config.execution_engine.name = "sequential"
     exp.run(port=8081, debug = True)
     tmp = exp.export_top_models(formatter="dict", top_k=10)
-    with open("top_models.json", "w") as f:
-        json.dump(tmp, f, indent=4) 
+    with open(os.path.join(output_dir, "top_models.json"), "w") as f:
+        json.dump(tmp, f, indent=4)
 
-    with open("search_stat_dict.json", "w") as f:
+    with open(os.path.join(output_dir, "search_stat_dict.json"), "w") as f:
         json.dump(search_strategy.state_dict(), f, indent=4)
 
 if __name__ == "__main__":
