@@ -5,3 +5,10 @@ MNSIM
 data
 dataset
 .vscode
+trace.json
+main.py.lprof
+*.pth
+*.json
+*.csv
+runs
+lightning_logs/

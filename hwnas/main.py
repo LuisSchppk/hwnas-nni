@@ -1,19 +1,18 @@
 from collections import Counter, defaultdict
+import json
 import nni
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
 import cifar10net
-from search_space import TutorialModelSpace, VGG8ModelSpaceCIFAR10, VGG8ModelSpaceCIFAR10OneShot
+from search_space import VGG8ModelSpaceCIFAR10
 from nni.nas.evaluator import FunctionalEvaluator
 import nni.nas.strategy as strategy
 from nni.nas.experiment import NasExperiment
-from nni.nas.experiment.config import NasExperimentConfig, RawModelFormatConfig
-from nni.nas.evaluator.pytorch.lightning import Trainer
+from nni.nas.experiment.config import NasExperimentConfig
 from evaluator import hw_evaluation_model
 from torch.utils.data import DataLoader
 from hardware_aware_performance_estimation import get_hardware_metrics
-from torchvision import datasets, transforms
-from nni.nas.evaluator.pytorch import ClassificationModule, Lightning
+from torchvision import transforms
 from nni.mutable import Categorical
 from nni.nas.nn.pytorch import LayerChoice
 import torch
@@ -101,15 +100,18 @@ def restrict_model_space(model_space, best_candidates):
 # @profile
 def main():
 
-    batch_size = 256
-    num_workers = 8
+    batch_size = 128
+    num_workers = 0
     max_epochs = 30
     max_steps = 1
     fast_dev_run = True
     torch.set_float32_matmul_precision('medium')
 
+    print(torch.__version__)
+    print(torch.version.cuda)
+    print(torch.cuda.is_available())
+
     # Define a simple transform
-    transform = transforms.ToTensor()
 
     # full_train = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
 
@@ -143,22 +145,19 @@ def main():
 
     model_space = VGG8ModelSpaceCIFAR10()
     # model_space = TutorialModelSpace()
-    search_strategy = strategy.RegularizedEvolution(population_size=10, sample_size=3)
+    search_strategy = strategy.TPE()
     evaluator = FunctionalEvaluator(hw_evaluation_model, **{"num_classes" : 10, "batch_size" : batch_size, "epochs" : max_epochs, "num_workers" : num_workers})
     config = NasExperimentConfig("sequential", "simplified", "local", **{"debug":True})
     exp = NasExperiment(model_space, evaluator, search_strategy, config)
-    exp.config.max_trial_number = 15 
+    exp.config.max_trial_number = 1
     exp.config.execution_engine.name = "sequential"
     exp.run(port=8081, debug = True)
-    # tmp = exp.export_top_models(formatter="dict", top_k=1)
- 
-   
+    tmp = exp.export_top_models(formatter="dict", top_k=10)
+    with open("top_models.json", "w") as f:
+        json.dump(tmp, f, indent=4) 
 
-    
-    # xbar_size = nni.choice("xbar_size", [256, 512])
-    # tmp[0].add_mutable(mutable=xbar_size)
-    # restricted_modelspace = ModelSpace()
-    # print(tmp)
+    with open("search_stat_dict.json", "w") as f:
+        json.dump(search_strategy.state_dict(), f, indent=4)
 
 if __name__ == "__main__":
     main()

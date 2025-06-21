@@ -12,16 +12,11 @@ import torch.nn as nn
 from torchvision import transforms
 from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader
-import sys
 import torch
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, random_split
 
 from tqdm import tqdm
-
-
-sys.path.insert(0, '/mnt/c/Users/Luis/Documents/Uni-DESKTOP-F7N3QC8/TU Dresden/4. Semester/CC-Seminar/MNSIM-2.0')
-
 from cifar10net import FCGRDataset
 import util
 from hardware_aware_performance_estimation import get_hardware_metrics
@@ -103,49 +98,8 @@ def hw_evaluation_model(model, num_classes, batch_size=64, num_workers = 4, epoc
     model_exec = ExecutableModelSpace(model)
     context = model_exec.status._frozen_context
 
-    # Define a simple transform
-    transform = transforms.ToTensor()
-
-    full_train = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
-
-    # Training set and loader
-    train_dataset, val_dataset = random_split(full_train, [45000, 5000])
-    train_loader  = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    val_loader   = DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, num_workers=num_workers)
-
-    # Test set and loader
-    test_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
-    test_loader  = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    
-    tmp_time = time.time()
-    best_metric = -np.inf
-    patience = 8
-    counter = 0
-    min_delta = 1 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    for epoch in range(epochs):
-        print("Epoch", epoch)
-        train_epoch(model, device, train_loader, optimizer)
-        accuracy = test_epoch(model, device, val_loader)
-        val_metric = accuracy
-        if counter >= patience:
-            print("Early stopping triggered")
-            break
-        if val_metric > best_metric + min_delta:
-            best_metric = val_metric
-            counter = 0
-            print("Reset Patience")
-        else:
-            counter += 1
-        if(val_metric >= 50):
-            break
-
-    tmp2_time = time.time()
-
-    print("Total time for native training", tmp2_time - tmp_time)
-
+    print("Model Context", context)
     start_time = time.time()
-
     df = pd.DataFrame()
     matching_rows = pd.DataFrame()
     if file_exists:
@@ -165,6 +119,46 @@ def hw_evaluation_model(model, num_classes, batch_size=64, num_workers = 4, epoc
         energy = first_row["energy"]
         area = first_row["area"]
     else: 
+        train_transform = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465),
+                                (0.2023, 0.1994, 0.2010)),
+        ])
+
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465),
+                                (0.2023, 0.1994, 0.2010)),
+        ])
+        full_train = datasets.CIFAR10(root='./data', train=True, download=True, transform=train_transform)
+        train_dataset, val_dataset = random_split(full_train, [45000, 5000])
+        train_loader  = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+        val_loader   = DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, num_workers=num_workers)
+        test_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=test_transform)
+        test_loader  = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+        
+        best_metric = -np.inf
+        patience = 8
+        counter = 0
+        min_delta = 1 
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        for epoch in range(epochs):
+            print("Epoch", epoch)
+            train_epoch(model, device, train_loader, optimizer)
+            accuracy = test_epoch(model, device, val_loader)
+            val_metric = accuracy
+            if counter >= patience:
+                print("Early stopping triggered")
+                break
+            if val_metric > best_metric + min_delta:
+                best_metric = val_metric
+                counter = 0
+                print("Reset Patience")
+            else:
+                counter += 1
+
         accuracy, latency, energy, area = get_hardware_metrics(
             model=model,
             train_loader=train_loader,
@@ -182,7 +176,6 @@ def hw_evaluation_model(model, num_classes, batch_size=64, num_workers = 4, epoc
     print("Final metric", metric)
     nni.report_final_result(metric=metric)
     result = pd.DataFrame([{"context": context, "accuracy" : accuracy, "latency" : latency, "energy" : energy , "area" : area}]) 
-    
     
     result.to_csv(
         csv_path,

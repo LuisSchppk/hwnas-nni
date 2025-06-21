@@ -1,21 +1,15 @@
-import configparser
-import os
 import sys
 import time
 import numpy as np
 import torch
 from tqdm import tqdm
 
-from MNSIM.Interface import quantize
-sys.path.insert(0, '/mnt/c/Users/Luis/Documents/Uni-DESKTOP-F7N3QC8/TU Dresden/4. Semester/CC-Seminar/MNSIM-2.0')
+sys.path.insert(0, '../MNSIM-2.0')
 
 
 import torch
-import torch.profiler
-
-
-import MNSIM
 from util import trace_model
+import MNSIM
 from MNSIM.Accuracy_Model.Weight_update import weight_update
 from MNSIM.Area_Model.Model_Area import Model_area
 from MNSIM.Energy_Model.Model_energy import Model_energy
@@ -27,8 +21,6 @@ from mnsim_wrapper import WrappedTestTrainInterface
 from torch.optim import Adam
 import torch
 import torch.nn as nn
-import torch.optim.lr_scheduler as lr_scheduler
-from tensorboardX import SummaryWriter
 from translate_state_dict import *
 
 def get_hardware_metrics(model, train_loader, test_loader, val_loader, num_classes, max_epochs = 30, device = "cuda"):
@@ -234,7 +226,7 @@ def train_net(
     epochs: int = 60,
     lr: float = 1e-3,          
     weight_decay: float = 0.01,
-    milestones: list[int] = [30, 60],
+    milestones = [30, 60],
     gamma: float = 0.1,         
 ) -> None:
     net = torch.nn.DataParallel(net)

@@ -1,21 +1,14 @@
 import collections
 import configparser
 import math
-import re
-from MNSIM.Latency_Model.Model_latency import Model_latency
-import util
-from pickle import FALSE
 
 import torch
 import sys
-sys.path.insert(0, '/mnt/c/Users/Luis/Documents/Uni-DESKTOP-F7N3QC8/TU Dresden/4. Semester/CC-Seminar/MNSIM-2.0')
+sys.path.insert(0, "MNSIM-2.0")
 
-import MNSIM
-from MNSIM import Interface
 import MNSIM
 from MNSIM.Interface.interface import TrainTestInterface
 from MNSIM.Interface.network import NetworkGraph
-import bisect
 
 def translate_state_dict_structure_file(state_dict, quantize_config_list, structure_file, tmp):
 
