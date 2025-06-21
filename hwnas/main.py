@@ -145,6 +145,7 @@ def main():
     # restrict_model_space(model_space, exp.export_top_models(formatter="dict", top_k=100))
 
     model_space = VGG8ModelSpaceCIFAR10()
+    
     # model_space = TutorialModelSpace()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = f"output_{timestamp}"
@@ -163,7 +164,7 @@ def main():
 
     with open(os.path.join(output_dir, "search_stat_dict.json"), "w") as f:
         json.dump(search_strategy.state_dict(), f, indent=4)
-        
+
     with open(os.path.join(output_dir, "all_models.json"), "w") as f:
         json.dump(search_strategy.list_models(), f, indent=4)
 

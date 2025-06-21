@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import nni
 from nni.nas.nn.pytorch import (
     ModelSpace, LayerChoice, InputChoice, Repeat, 
-    MutableDropout, MutableLinear, MutableConv2d
+    MutableDropout, MutableLinear, MutableConv2d, MutableMaxPool2d
 )
 
 from nni.mutable.symbol import SymbolicExpression 
@@ -43,7 +43,7 @@ class VGG8ModelSpaceCIFAR10(ModelSpace):
         kernel_size_conv1 = nni.choice('kernel_size_conv1', [3, 5, 7])
         kernel_size_conv2 = nni.choice('kernel_size_conv2', [3, 5, 7])
         kernel_size_conv3 = nni.choice('kernel_size_conv3', [3, 5])
-        kernel_size_conv4 = nni.choice('kernel_size_conv4', [3, 5])
+        # kernel_size_conv4 = nni.choice('kernel_size_conv4', [3, 5])
         # kernel_size_conv7 = nni.choice('kernel_size_conv7', [1, 3])
         kernel_size_conv7 = 3
         kernel_size_pool = nni.choice('pool_size', [2,4])
@@ -72,8 +72,8 @@ class VGG8ModelSpaceCIFAR10(ModelSpace):
             MutableConv2d(
                 SymbolicExpression.to_int(out_size * mult * mult),
                 SymbolicExpression.to_int(out_size * mult * mult),
-                kernel_size=kernel_size_conv4,
-                padding=(kernel_size_conv4 // 2)
+                kernel_size=kernel_size_conv3,
+                padding=(kernel_size_conv3 // 2)
             ),
             nn.Identity()
         ], label='conv4_choice')
@@ -102,7 +102,7 @@ class VGG8ModelSpaceCIFAR10(ModelSpace):
             padding=0
         )
 
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.pool = MutableMaxPool2d(kernel_size=kernel_size_pool, stride=2)
         self.relu = nn.ReLU(inplace=True)
 
         final_spatial_size = 1
