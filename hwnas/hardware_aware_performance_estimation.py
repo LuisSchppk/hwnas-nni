@@ -68,7 +68,6 @@ def get_hardware_metrics(model, train_loader, test_loader, val_loader, num_class
     train_loader = train_loader
     test_loader = test_loader
     sim_config_path = Path(sim_config).resolve()
-    print(sim_config_path)
 
     # sub_array_size = model.sub_array_size
     # config['Crossbar level']["Subarray_Size"]
