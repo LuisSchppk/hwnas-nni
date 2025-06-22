@@ -1,6 +1,7 @@
 import ast
 import math
 import os
+from pathlib import Path
 import time
 import nni
 import numpy as np
@@ -34,7 +35,7 @@ def multiple_objective_function(accuracy, latency, energy, area,
     return alpha * accuracy - (beta * latency + gamma * energy + delta * area)
 
 def objective(acc, latency, energy, area,
-              w_acc=1.0, w_lat=0.1, w_en=0.05, A_max=1e8):
+              w_acc=1.0, w_lat=1.0, w_en=1.0, A_max=1e8):
     """
     Returns a scalar F to maximize, without explicit reference values.
     If area > A_max, returns -inf to mark infeasible.
@@ -64,7 +65,6 @@ def train_epoch(model, device, train_loader, optimizer):
 def test_epoch(model, device, test_loader):
     model.eval()
     model.to(device)
-    test_loss = 0
     correct = 0
     with torch.no_grad():
         for data, target in test_loader:
@@ -72,8 +72,6 @@ def test_epoch(model, device, test_loader):
             output = model(data)
             pred = output.argmax(dim=1, keepdim=True)
             correct += pred.eq(target.view_as(pred)).sum().item()
-
-    test_loss /= len(test_loader.dataset)
     accuracy = 100. * correct / len(test_loader.dataset)
 
     print('\nTest set: Accuracy: {}/{} ({:.0f}%)\n'.format(
@@ -83,7 +81,7 @@ def test_epoch(model, device, test_loader):
 
 
 
-def hw_evaluation_model(model, num_classes,  output_csv, batch_size=64, num_workers = 4, epochs=30, lr=0.001, device = "cuda"):
+def hw_evaluation_model(model, num_classes,  output_csv, batch_size=64, num_workers = 4, epochs=30, lr=0.001, device = "cuda", csv_suffix = "_current."):
     # nni.report_final_result(metric=1)
     # return 
     start = time.time()
@@ -157,6 +155,7 @@ def hw_evaluation_model(model, num_classes,  output_csv, batch_size=64, num_work
                 print("Reset Patience")
             else:
                 counter += 1
+            # break
 
         accuracy, latency, energy, area = get_hardware_metrics(
             model=model,
@@ -178,6 +177,14 @@ def hw_evaluation_model(model, num_classes,  output_csv, batch_size=64, num_work
     
     result.to_csv(
         output_csv,
+        mode='a' if file_exists else 'w',
+        header=not file_exists,
+        index=False
+    )
+
+    output_csv2 = output_csv.replace(".", csv_suffix)
+    result.to_csv(
+        output_csv2,
         mode='a' if file_exists else 'w',
         header=not file_exists,
         index=False

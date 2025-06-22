@@ -25,7 +25,7 @@ import torch
 import torch.nn as nn
 from translate_state_dict import *
 
-def get_hardware_metrics(model, train_loader, test_loader, val_loader, num_classes, max_epochs = 30, device = "cuda"):
+def get_hardware_metrics(model, train_loader, test_loader, val_loader, num_classes, max_epochs = 30, device = "cuda", sim_config="MNSIM-2.0/SimConfig.ini"):
     # return 1, 1, 1, 1
     inputs, _ = next(iter(train_loader))
     input_shape = inputs.shape
@@ -67,7 +67,8 @@ def get_hardware_metrics(model, train_loader, test_loader, val_loader, num_class
     # state_dict = None
     train_loader = train_loader
     test_loader = test_loader
-    sim_config_path = Path("MNSIM-2.0/SimConfig.ini").resolve()
+    sim_config_path = Path(sim_config).resolve()
+    print(sim_config_path)
 
     # sub_array_size = model.sub_array_size
     # config['Crossbar level']["Subarray_Size"]

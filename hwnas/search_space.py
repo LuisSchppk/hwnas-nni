@@ -44,7 +44,8 @@ class VGG8ModelSpaceCIFAR10(ModelSpace):
         kernel_size_conv2 = nni.choice('kernel_size_conv2', [3, 5, 7])
         kernel_size_conv3 = nni.choice('kernel_size_conv3', [3, 5])
         kernel_size_conv4 = nni.choice('kernel_size_conv4', [3, 5])
-        kernel_size_conv7 = nni.choice('kernel_size_conv7', [1, 3])
+        # kernel_size_conv7 = nni.choice('kernel_size_conv7', [1, 3])
+        kernel_size_conv7 = 3
         # kernel_size_pool = nni.choice('pool_size', [2,4])
 
         self.conv1 = MutableConv2d(3, out_size, kernel_size=kernel_size_conv1, padding=(kernel_size_conv1 // 2) )
@@ -101,12 +102,19 @@ class VGG8ModelSpaceCIFAR10(ModelSpace):
             padding=0
         )
 
+        
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        self.pool = LayerChoice([
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.AvgPool2d(kernel_size=2, stride=2)
+        ], label='pool_choice')
+
         self.relu = nn.ReLU(inplace=True)
 
         final_spatial_size = 1
         fc_in_features = SymbolicExpression.to_int(
-            out_size * mult * mult * mult * mult * final_spatial_size * final_spatial_size
+                out_size * mult * mult * mult * mult * final_spatial_size * final_spatial_size
         )
 
         self.fc1 = MutableLinear(fc_in_features, NUM_CLASSES, bias=False)

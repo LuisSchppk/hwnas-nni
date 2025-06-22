@@ -409,7 +409,6 @@ def trace_model(model, num_classes=None, input_shape = None,):
                     'type': 'pooling',
                     'mode': 'AVE',
                     'kernel_size': mod.kernel_size if isinstance(mod.kernel_size, int) else mod.kernel_size[0],
-                    'kernel_size': mod.kernel_size if isinstance(mod.kernel_size, int) else mod.kernel_size[0], 
                     'stride':  mod.stride if isinstance(mod.stride, int) else mod.stride[0],
                 })
                 if hasattr(mod, 'padding'):

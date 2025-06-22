@@ -2,6 +2,8 @@ from collections import Counter, defaultdict
 from datetime import datetime
 import json
 import os
+from pathlib import Path
+import shutil
 import nni
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
@@ -98,14 +100,61 @@ def restrict_model_space(model_space, best_candidates):
         if removed:
             print(f"Removed from '{mut.label}': {sorted(removed)}")
 
+def run_evo(id = "short_training", output_dir = f"output_{id}"):
+    batch_size = 128
+    num_workers = 0
+    max_epochs = 3
+    max_trials = 300
+    model_space = VGG8ModelSpaceCIFAR10()
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    search_strategy = strategy.RegularizedEvolution(population_size=100, sample_size=25)
+    engine = "sequential"
+    evaluator = FunctionalEvaluator(hw_evaluation_model, **{"num_classes" : 10, "batch_size" : batch_size, "epochs" : max_epochs, "num_workers" : num_workers, "output_csv" : os.path.join(output_dir, "results.csv"), "csv_suffix" : "_evo."})
+    config = NasExperimentConfig(engine, "simplified", "local", **{"debug":True})
+    exp = NasExperiment(model_space, evaluator, search_strategy, config, id=id)
+    exp.config.max_trial_number = max_trials
+    exp.config.execution_engine.name = engine
+    exp.run(debug = True)
+    # exp.resume(debug=True)
+    tmp = exp.export_top_models(formatter="dict", top_k=200)
+    with open(os.path.join(output_dir, "top_models.json"), "w") as f:
+        json.dump(tmp, f, indent=4)
+
+    # with open(os.path.join(output_dir, "search_stat_dict.json"), "w") as f:
+    #     json.dump(search_strategy.state_dict(), f, indent=4)
+
+def run_tpe(id = "short_training", output_dir = f"output_{id}"):
+    batch_size = 128
+    num_workers = 0
+    max_epochs = 3
+    max_trials = 300
+    model_space = VGG8ModelSpaceCIFAR10()
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    search_strategy = strategy.TPE()
+    engine = "sequential"
+    evaluator = FunctionalEvaluator(hw_evaluation_model, **{"num_classes" : 10, "batch_size" : batch_size, "epochs" : max_epochs, "num_workers" : num_workers, "output_csv" : os.path.join(output_dir, "results.csv"), "csv_suffix" : "_tpe."})
+    config = NasExperimentConfig(engine, "simplified", "local", **{"debug":True})
+    
+    exp = NasExperiment(model_space, evaluator, search_strategy, config, id=id)
+    exp.config.max_trial_number = max_trials
+    exp.config.execution_engine.name = engine
+    exp.run(debug = True)
+    # exp.resume(debug=True)
+    tmp = exp.export_top_models(formatter="dict", top_k=200)
+    with open(os.path.join(output_dir, "top_models.json"), "w") as f:
+        json.dump(tmp, f, indent=4)
+
+    with open(os.path.join(output_dir, "search_stat_dict.json"), "w") as f:
+        json.dump(search_strategy.state_dict(), f, indent=4)
+
 # @profile
 def main():
 
-    batch_size = 128
-    num_workers = 0
-    max_epochs = 30
-    max_steps = 1
-    fast_dev_run = True
+  
     torch.set_float32_matmul_precision('medium')
 
     print(torch.__version__)
@@ -144,34 +193,23 @@ def main():
     # model_space = VGG8ModelSpaceCIFAR10OneShot()
     # restrict_model_space(model_space, exp.export_top_models(formatter="dict", top_k=100))
 
-    model_space = VGG8ModelSpaceCIFAR10()
-    
-    # model_space = TutorialModelSpace()
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = f"output_{timestamp}"
+    id = "short_training"
+    output_dir = f"output_{id}"
     os.makedirs(output_dir, exist_ok=True)
+    run_evo(id, output_dir)
     
-    search_strategy = strategy.TPE()
+    # source = Path(output_dir)
+    # destination = Path(output_dir + "_evo")
 
-    evaluator = FunctionalEvaluator(hw_evaluation_model, **{"num_classes" : 10, "batch_size" : batch_size, "epochs" : max_epochs, "num_workers" : num_workers, "output_csv" : os.path.join(output_dir, "results.csv")})
-    config = NasExperimentConfig("sequential", "simplified", "local", **{"debug":True})
-    exp = NasExperiment(model_space, evaluator, search_strategy, config, id="5ylx1uk9")
-    exp.config.max_trial_number = 50
-    exp.config.execution_engine.name = "sequential"
-    # exp.run(port=8081, debug = True)
-    if exp.has_checkpoint():
-        exp.resume()
-    else:
-        exp.run()
-    tmp = exp.export_top_models(formatter="dict", top_k=50)
-    with open(os.path.join(output_dir, "top_models.json"), "w") as f:
-        json.dump(tmp, f, indent=4)
+    # shutil.copytree(source, destination)
 
-    with open(os.path.join(output_dir, "search_stat_dict.json"), "w") as f:
-        json.dump(search_strategy.state_dict(), f, indent=4)
+    run_tpe(id, output_dir)
 
-    with open(os.path.join(output_dir, "all_models.json"), "w") as f:
-        json.dump(search_strategy.list_models(), f, indent=4)
+    # model_space = TutorialModelSpace()
+    
+
+    # with open(os.path.join(output_dir, "all_models.json"), "w") as f:
+    #     json.dump(search_strategy.list_models(), f, indent=4)
 
 if __name__ == "__main__":
     main()
