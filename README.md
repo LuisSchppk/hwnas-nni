@@ -11,7 +11,7 @@ Install the required Python packages listed in `requirements.txt`:
 ```bash
 pip install -r requirements.txt
 ```
-
+CUDA Version 11.8 was used.
 ---
 
 ## Step 2: Download MNSIM-2.0
@@ -30,22 +30,26 @@ git clone https://github.com/thu-nics/MNSIM-2.0.git
 
 Add a `pyproject.toml` or `setup.py` to the root of the `MNSIM` directory.
 
-### Option A: `setup.py`
+### Option: `pyproject.toml`
 
-Create a file `MNSIM/setup.py` with the following contents:
+Create a file `MNSIM-2.0/pyproject.toml` with the following contents:
 
 ```python
-from setuptools import setup, find_packages
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
 
-setup(
-    name="mnsim",
-    version="2.0",
-    packages=find_packages(),
-    install_requires=[],
-)
+[project]
+name = "mnsim"
+version = "2.0.0"
+description = "Packaging of third party MNSIM-2.0 for easy installation"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
 ```
 
-> This makes MNSIM installable as a Python package.
+> This makes MNSIM-2.0 installable as a Python package.
 
 ---
 
@@ -54,7 +58,7 @@ setup(
 From the `MNSIM` directory:
 
 ```bash
-cd MNSIM
+cd MNSIM-2.0
 pip install -e .
 ```
 
