@@ -16,7 +16,6 @@ class DatasetModuleDummy:
     def get_dataloader(self):
         return self.data_loaders
 
-
 class WrappedTestTrainInterface(TrainTestInterface):
     """Copied from MNSIM-2.0 TrainTestInterface and more or less adapted."""
 

@@ -42,8 +42,6 @@ def get_hardware_metrics(
 
     network_module = None
     state_dict = flatten_dict(model.state_dict())
-    train_loader = train_loader
-    test_loader = test_loader
     sim_config_path = Path(sim_config).resolve()
 
     # Proof of concept. Can be extended to more hardware parameters.
@@ -58,6 +56,7 @@ def get_hardware_metrics(
     enable_R_ratio = False
     enable_fixed_Qrange = False
 
+    # Build quantized model in MNSIM
     test_train_interface = WrappedTestTrainInterface(
         layer_config_list=layer_config_list,
         network_module=network_module,

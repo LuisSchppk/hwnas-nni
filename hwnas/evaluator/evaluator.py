@@ -93,6 +93,8 @@ def hw_evaluation_model(
     start = time.time()
 
     model.to(device)
+
+    # MNSIM does not support bias on conv instead in the manual execution of MNSIM, they automatically append batchnorm after each convolution layer. To match this behavior bn is appended after each conv. layer with bias=True.
     util.replace_conv_bias_with_bn(module=model, device=device)
 
     file_exists = os.path.isfile(output_csv)
@@ -155,6 +157,8 @@ def hw_evaluation_model(
             root="./data", train=True, download=True, transform=train_transform
         )
         train_dataset, val_dataset = random_split(full_train, [45000, 5000])
+
+        
         train_loader = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
         )
