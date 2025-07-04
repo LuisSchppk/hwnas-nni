@@ -1,6 +1,6 @@
 # Project Setup Guide
 
-This repository depends on [MNSIM-2.0](https://github.com/Intelligent-Computing-Lab-Yale/MNSIM) and other Python packages. Follow the instructions below to set up your environment.
+This repository depends on [MNSIM-2.0](https://github.com/thu-nics/MNSIM-2.0/tree/master) and other Python packages. Follow the instructions below to set up your environment.
 
 ---
 
