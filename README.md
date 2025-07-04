@@ -67,5 +67,6 @@ This installs MNSIM in **editable mode**, so any changes to the source code take
 ---
 
 ## Step 5:
+Specify a hardware configuration in main.py. For default specify MNSIM-2.0/SimConfig.ini
 
 ## Done
