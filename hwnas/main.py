@@ -93,10 +93,13 @@ def main():
     id = "short_training"
     output_dir = f"output_{id}"
     os.makedirs(output_dir, exist_ok=True)
-    hardware_config_path = "../../CC-Seminar/MNSIM-2.0/SimConfig.ini"
+    hardware_config_path = "HARDWARE CONFIG NOT SPECIFIED"
     if hardware_config_path == "":
         print("Please set hardware_config_path to the sim_config.ini that describes the hardware model. Default MNSIM-2.0: set to <path-to-MNSIM-2.0>/MNSIM-2.0/SimConfig.ini")
         return
+    if not os.path.exists(hardware_config_path):
+        print("Could not find hardware configuration at", hardware_config_path)
+        return 
     run_evo(hardware_config_path, id, output_dir)
 
     # Optional: Run TPE Search. Results were worse than with evo.
