@@ -19,7 +19,7 @@ pip install -r requirements.txt
 Clone the MNSIM-2.0 repository:
 
 ```bash
-git clone https://github.com/Intelligent-Computing-Lab-Yale/MNSIM.git
+git clone https://github.com/thu-nics/MNSIM-2.0.git
 ```
 
 > Ensure you are in the correct working directory before cloning.
