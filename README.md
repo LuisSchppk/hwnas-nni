@@ -58,7 +58,7 @@ where = ["."]
 From the `MNSIM` directory:
 
 ```bash
-cd MNSIM
+cd MNSIM-2.0
 pip install -e .
 ```
 
