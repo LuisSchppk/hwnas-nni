@@ -11,7 +11,7 @@ Install the required Python packages listed in `requirements.txt`:
 ```bash
 pip install -r requirements.txt
 ```
-
+CUDA Version 11.8 was used.
 ---
 
 ## Step 2: Download MNSIM-2.0
