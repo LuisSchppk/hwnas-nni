@@ -7,7 +7,7 @@ This repository depends on [MNSIM-2.0](https://github.com/thu-nics/MNSIM-2.0/tre
 ## Step 1: Install Python Dependencies
 
 Install the required Python packages listed in `requirements.txt`:
-CUDA Version 11.8 was used.
+CUDA Version 11.8 is used.
 
 ```bash
 pip install -r requirements.txt
