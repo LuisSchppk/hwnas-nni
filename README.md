@@ -66,4 +66,6 @@ This installs MNSIM in **editable mode**, so any changes to the source code take
 
 ---
 
+## Step 5:
+
 ## Done

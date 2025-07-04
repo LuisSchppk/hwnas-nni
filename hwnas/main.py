@@ -11,7 +11,7 @@ import torch
 torch.set_float32_matmul_precision("medium")
 
 
-def run_evo(id="short_training", output_dir=f"output_{id}", device="cuda"):
+def run_evo(hardware_config_path, id="short_training", output_dir=f"output_{id}", device="cuda"):
     """
     Runs a Neural Architecture Search (NAS) experiment using the Regularized Evolution strategy. This is the experiment detailed in the paper.
     """
@@ -32,7 +32,7 @@ def run_evo(id="short_training", output_dir=f"output_{id}", device="cuda"):
             "num_workers": num_workers,
             "output_csv": os.path.join(output_dir, "results.csv"),
             "csv_suffix": "_evo.",
-            "hardware_config": "MNSIM-2.0/SimConfig.ini",
+            "hardware_config": hardware_config_path,
         },
     )
 
@@ -48,7 +48,7 @@ def run_evo(id="short_training", output_dir=f"output_{id}", device="cuda"):
         json.dump(searched_models, f, indent=4)
 
 
-def run_tpe(id="short_training", output_dir=f"output_{id}"):
+def run_tpe(hardware_config_path, id="short_training", output_dir=f"output_{id}"):
     """
     Runs a Neural Architecture Search (NAS) experiment using the TPE strategy. This is the experiment detailed in the paper.
     """
@@ -93,7 +93,11 @@ def main():
     id = "short_training"
     output_dir = f"output_{id}"
     os.makedirs(output_dir, exist_ok=True)
-    run_evo(id, output_dir)
+    hardware_config_path = "../../CC-Seminar/MNSIM-2.0/SimConfig.ini"
+    if hardware_config_path == "":
+        print("Please set hardware_config_path to the sim_config.ini that describes the hardware model. Default MNSIM-2.0: set to <path-to-MNSIM-2.0>/MNSIM-2.0/SimConfig.ini")
+        return
+    run_evo(hardware_config_path, id, output_dir)
 
     # Optional: Run TPE Search. Results were worse than with evo.
     # source = Path(output_dir)
